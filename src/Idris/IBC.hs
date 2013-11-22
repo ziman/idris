@@ -24,7 +24,7 @@ import Debug.Trace
 import Paths_idris
 
 ibcVersion :: Word8
-ibcVersion = 45
+ibcVersion = 46
 
 data IBCFile = IBCFile { ver :: Word8,
                          sourcefile :: FilePath,
@@ -834,15 +834,13 @@ safeToEnum label x' = result
             = error $ label ++ ": corrupted binary representation in IBC"
         | otherwise = toEnum x
 
-{-
 instance Binary Forceability where
     put = putWord8 . fromIntegral . fromEnum
     get = safeToEnum "Forceability" `fmap` getWord8
--}
 
 instance Binary (W ForceMap) where
-    put (W m) = return () -- put (M.toList m)
-    get = return (W M.empty) -- (W . M.fromList) `fmap` get
+    put (W m) = put (M.toList m)
+    get = (W . M.fromList) `fmap` get
 
 instance Binary PReason where
         put x
