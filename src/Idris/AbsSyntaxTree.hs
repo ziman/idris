@@ -532,6 +532,7 @@ data PDecl' t
    | PProvider SyntaxInfo FC ProvideWhat Name t t -- ^ Type provider. The first t is the type, the second is the term
    | PTransform FC Bool t t -- ^ Source-to-source transformation rule. If
                             -- bool is True, lhs and rhs must be convertible
+   | POpen FC PTerm  -- agda-style "open Record"
  deriving Functor
 {-!
 deriving instance Binary PDecl'
@@ -602,6 +603,7 @@ declared (PDSL n _) = [n]
 declared (PSyntax _ _) = []
 declared (PMutual _ ds) = concatMap declared ds
 declared (PDirective _) = []
+declared (POpen _ tm) = []  -- TODO: we can't know the declared names in a pure function
 
 -- get the names declared, not counting nested parameter blocks
 tldeclared :: PDecl -> [Name]
@@ -637,6 +639,7 @@ defined (PDSL n _) = [n]
 defined (PSyntax _ _) = []
 defined (PMutual _ ds) = concatMap defined ds
 defined (PDirective _) = []
+defined (POpen _ tm) = []  -- TODO: we can't see which names are declared here
 --defined _ = []
 
 updateN :: [(Name, Name)] -> Name -> Name

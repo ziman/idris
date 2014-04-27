@@ -2260,6 +2260,18 @@ elabInstance info syn what fc cs n ps t expn ds = do
                      PClauses fc [Dictionary] cfn [PClause fc cfn lhs [] rhs []]]
 -}
 
+-- open record
+elabOpen :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
+elabOpen what info fc tm = do
+    iLOG $ "elaborating open-clause: " ++ show tm
+    {-
+    ((lhs', dlhs, []), _) <-
+        tclift $ elaborate ctxt (sMN 0 "transLHS") infP []
+                (erun fc (buildTC i info True [] (sUN "transform")
+                            (infTerm lhs)))
+    -}
+    return ()
+
 decorateid decorate (PTy doc argdocs s f o n t) = PTy doc argdocs s f o (decorate n) t
 decorateid decorate (PClauses f o n cs)
    = PClauses f o (decorate n) (map dc cs)
@@ -2414,6 +2426,8 @@ elabDecl' what info (PProvider syn fc provWhat n tp tm)
          elabProvider info syn fc provWhat n tp tm
 elabDecl' what info (PTransform fc safety old new)
     = elabTransform info fc safety old new
+elabDecl' what info (POpen fc tm)
+    = elabOpen what info fc tm
 elabDecl' _ _ _ = return () -- skipped this time
 
 elabCaseBlock info opts d@(PClauses f o n ps)

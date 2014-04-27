@@ -180,6 +180,7 @@ decl syn = do fc <- getFC
                    <|> directive syn
                    <|> provider syn
                    <|> transform syn
+                   <|> openRecord syn
                    <|> do import_; fail "imports must be at top of file"
                    <?> "declaration"
         declBody' :: IdrisParser [PDecl]
@@ -1093,6 +1094,11 @@ transform syn = do try (lchar '%' *> reserved "transform")
                    return [PTransform fc False l r]
                 <?> "transform"
 
+openRecord :: SyntaxInfo -> IdrisParser [PDecl]
+openRecord syn = return <$> openRecord' syn
+
+openRecord' :: SyntaxInfo -> IdrisParser PDecl
+openRecord' syn = POpen <$> getFC <*> (reserved "open" *> expr syn)
 
 {- * Loading and parsing -}
 {- | Parses an expression from input -}
