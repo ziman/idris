@@ -2263,30 +2263,44 @@ elabInstance info syn what fc cs n ps t expn ds = do
 -- open record
 elabOpen :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
 elabOpen what info fc ptm = do
-    let name = sMN 0 "open_record"  -- TODO
-    ctxt <- getContext
-    ist  <- getIState
 
+    -- foreword
+    ist  <- getIState
+    let name = sMN 0 "open_record"  -- TODO
     iLOG $ "elaborating open-clause: " ++ show name
 
     -- infer the type + check it
     ((infTm, _, _), _)  <- tclift
-            . elaborate ctxt name {- (P Bound inferTy Erased) -} Erased []
+            . elaborate (tt_ctxt ist) name {- (P Bound inferTy Erased) -} Erased []
             . errAt "open_record clause of " name
             . erun fc 
             . build ist info False [] name
             $ infTerm ptm
 
+    -- get the results of inference
     let tm = getInferTerm infTm
         ty = getInferType infTm
-
-    logLvl 5 $ "tm: " ++ show tm
-    logLvl 5 $ "ty: " ++ show ty
-
-    let argTys = getArgTys ty
+        argTys = getArgTys ty
         retTy  = getRetTy  ty
 
-    return ()
+    -- get the definition of the thing being opened
+    tn <- targetName retTy
+    typeInfo <- fgetState $ ist_datatype tn
+
+    when (length (con_names typeInfo) /= 1)
+        . ifail $ "can only open single-constructor datatypes: " ++ show tm
+
+    -- get the type of its constructor
+    let ctorName = head $ con_names typeInfo
+    TyDecl (DCon _ _) ctorTy <- fgetState $ ist_definition ctorName
+
+    iLOG $ "constructor type: " ++ show ctorTy
+  where
+    targetName ty@(App _ _)
+        | (P _ n _, args) <- unApply ty
+        = return n
+    targetName ty
+        = ifail $ "can't open non-datatype: " ++ show ty
 
 decorateid decorate (PTy doc argdocs s f o n t) = PTy doc argdocs s f o (decorate n) t
 decorateid decorate (PClauses f o n cs)

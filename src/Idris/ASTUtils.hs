@@ -38,6 +38,7 @@ import Data.Maybe
 import Prelude hiding (id, (.))
 
 import Idris.Core.TT
+import Idris.Core.Evaluate
 import Idris.AbsSyntaxTree
 
 data Field rec fld = Field
@@ -113,6 +114,7 @@ opt_detaggable = Field detaggable (\v opt -> opt{ detaggable = v })
 -- callgraph record for the given (exact) name
 ist_callgraph :: Name -> Field IState CGInfo
 ist_callgraph n =
+<<<<<<< HEAD
       maybe_default CGInfo
         { argsdef = [], calls = [], scg = []
         , argsused = [], usedpos = []
@@ -132,3 +134,26 @@ opts_idrisCmdline :: Field IState [Opt]
 opts_idrisCmdline =
       Field opt_cmdline (\v opts -> opts{ opt_cmdline = v })
     . Field idris_options (\v ist -> ist{ idris_options = v })
+
+-- Context
+----------
+
+instance InitialValue (Def, Accessibility, Totality, MetaInformation) where
+    initialValue = (err, err, err, err)
+      where
+        err = error "definition not found"
+
+ist_definition :: Name -> Field IState Def
+ist_definition n = 
+      Field (\(def, acc, tot, meta) -> def) (\v (_, acc, tot, meta) -> (v, acc, tot, meta))
+    . ctxt_lookupExact n
+    . Field definitions (\v ctx -> ctx{ definitions = v })
+    . Field tt_ctxt (\v ist -> ist{ tt_ctxt = v })
+
+instance InitialValue TypeInfo where
+    initialValue = error "type information not found"
+
+ist_datatype :: Name -> Field IState TypeInfo
+ist_datatype n =
+      ctxt_lookupExact n
+    . Field idris_datatypes (\v ist -> ist{ idris_datatypes = v })
