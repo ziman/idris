@@ -1098,7 +1098,7 @@ openRecord :: SyntaxInfo -> IdrisParser [PDecl]
 openRecord syn = return <$> openRecord' syn
 
 openRecord' :: SyntaxInfo -> IdrisParser PDecl
-openRecord' syn = POpen <$> getFC <*> (reserved "open" *> expr syn)
+openRecord' syn = POpen <$> getFC <*> (reserved "open_record" *> expr syn)
 
 {- * Loading and parsing -}
 {- | Parses an expression from input -}

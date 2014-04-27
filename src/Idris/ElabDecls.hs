@@ -2262,14 +2262,30 @@ elabInstance info syn what fc cs n ps t expn ds = do
 
 -- open record
 elabOpen :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
-elabOpen what info fc tm = do
-    iLOG $ "elaborating open-clause: " ++ show tm
-    {-
-    ((lhs', dlhs, []), _) <-
-        tclift $ elaborate ctxt (sMN 0 "transLHS") infP []
-                (erun fc (buildTC i info True [] (sUN "transform")
-                            (infTerm lhs)))
-    -}
+elabOpen what info fc ptm = do
+    name <- getNameFrom (sMN 0 "open_record")  -- TODO
+    ctxt <- getContext
+    ist  <- getIState
+
+    iLOG $ "elaborating open-clause: " ++ show name
+
+    -- infer the type + check it
+    ((infTm, _, _), _)  <- tclift
+            . elaborate ctxt name {- (P Bound inferTy Erased) -} Erased []
+            . errAt "open_record clause of " name
+            . erun fc 
+            . build ist info False [] name
+            $ infTerm ptm
+
+    let tm = getInferTerm infTm
+        ty = getInferType infTm
+
+    logLvl 5 $ "tm: " ++ show tm
+    logLvl 5 $ "ty: " ++ show ty
+
+    let argTys = getArgTys ty
+        retTy  = getRetTy  ty
+
     return ()
 
 decorateid decorate (PTy doc argdocs s f o n t) = PTy doc argdocs s f o (decorate n) t
