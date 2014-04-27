@@ -2263,7 +2263,7 @@ elabInstance info syn what fc cs n ps t expn ds = do
 -- open record
 elabOpen :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
 elabOpen what info fc ptm = do
-    name <- getNameFrom (sMN 0 "open_record")  -- TODO
+    let name = sMN 0 "open_record"  -- TODO
     ctxt <- getContext
     ist  <- getIState
 
