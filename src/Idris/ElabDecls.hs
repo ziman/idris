@@ -1656,9 +1656,6 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
             argTys = getArgTys ty
             retTy  = getRetTy  ty
 
-        when (not $ null argTys)
-            . ifail $ show fc ++ ": can only open fully applied records: " ++ show tm  -- TODO
-
         -- get the definition of the thing being opened
         tn <- targetName retTy
         typeInfo <- fgetState $ ist_datatype tn
@@ -1668,21 +1665,44 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
 
         -- get the type of its constructor
         let ctorName = head $ con_names typeInfo
-        TyDecl (DCon _ _) ctorTy <- fgetState $ ist_definition ctorName
+        TyDecl (DCon ctorTag ctorArity) ctorTy <- fgetState $ ist_definition ctorName
         let fields = getArgTys ctorTy
 
-        let scrutTy = delab ist ty
-            scrutTyDecl = PTy emptyDocstring [] defaultSyntax fc [] scrutN scrutTy
+        -- build the scrutinee
+        let scrutTyDecl = mkTyDecl ist scrutN ty
+            scrutDecl = PClauses fc [] scrutN [PClause fc scrutN (PRef fc scrutN) [] ptm []]
 
-        return [scrutTyDecl]
+        return $
+            [scrutTyDecl, scrutDecl]
+            ++ concatMap (mkField ist ctorName ctorArity argTys) (zip [0..] fields)
       where
+        targetName :: Type -> Idris Name
         targetName (App f _) = targetName f
         targetName (P (TCon _ _) n _) = return n
         targetName ty
             = ifail $ show fc ++ ": can't open non-datatype: " ++ show ty
 
-        mkField :: [(Name, Type)] -> (Name, Type) -> [PDecl]
-        mkField args (fn, fty) = []  -- TODO
+        mkField :: IState -> Name -> Int -> [(Name, Type)] -> (Int, (Name, Type)) -> [PDecl]
+        mkField ist ctorName ctorArity args (i, (fn, fty)) = [tyDecl, tmDecl]
+          where
+            tyDecl = mkTyDecl ist fn $ prepend args fty
+            tmDecl = PClauses fc [] fn [PClause fc fn lhs [] rhs []]
+            lhs = mkApp (PRef fc fn) (map fst args)
+            rhs = PCase fc (mkApp ptm $ map fst args) [(pat, arg i)]
+            pat = PApp fc (PRef fc ctorName) [PExp 0 [] (argN j) $ arg j | j <- [0 .. ctorArity-1]]
+            argN j = sMN i "field"
+            arg = PRef fc . argN
+
+        prepend :: [(Name, Type)] -> Type -> Type
+        prepend [] ty = ty
+        prepend ((n,t):as) ty = Bind n (Pi t) (prepend as ty)
+
+        mkApp :: PTerm -> [Name] -> PTerm
+        mkApp tm [] = tm
+        mkApp tm ns = PApp fc tm $ map (PExp 0 [] (sMN 0 "__app") . PRef fc) ns
+
+        mkTyDecl :: IState -> Name -> Type -> PDecl
+        mkTyDecl ist n ty = PTy emptyDocstring [] defaultSyntax fc [] n (delab ist ty)
 
     -- non-open decls expand to just themselves
     expandOpen (clauseNo, decl) = return [decl]
