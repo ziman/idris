@@ -1544,7 +1544,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         logLvl 5 ("Checked " ++ show clhs ++ "\n" ++ show clhsty)
 
         -- Elaborate where block
-        whereblock <- concat <$> mapM expandOpen whereblock'  -- expand open-clauses
+        whereblock <- concat <$> mapM expandOpen (zip [0..] whereblock')  -- expand open-clauses
 
         ist <- getIState
         windex <- getName
@@ -1635,11 +1635,11 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
            addErrRev (crhs, clhs) 
         return $ (Right (clhs, crhs), lhs)
   where
-    expandOpen :: PDecl -> Idris [PDecl]
-    expandOpen (POpen fc ptm) = do
+    expandOpen :: (Int, PDecl) -> Idris [PDecl]
+    expandOpen (clauseNo, POpen fc ptm) = do
         -- foreword
         ist  <- getIState
-        let scrutN = decorate (sMN 0 "open_scrutinee")
+        let scrutN = decorate (sMN clauseNo "open_scrutinee")
         iLOG $ "elaborating open-clause of (" ++ show ptm ++ ") as " ++ show scrutN
 
         -- infer the type + check it
@@ -1685,7 +1685,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         mkField args (fn, fty) = []  -- TODO
 
     -- non-open decls expand to just themselves
-    expandOpen decl = return [decl]
+    expandOpen (clauseNo, decl) = return [decl]
 
     pinfo :: ElabInfo -> [(Name, PTerm)] -> [Name] -> Int -> ElabInfo
     pinfo info ns ds i
