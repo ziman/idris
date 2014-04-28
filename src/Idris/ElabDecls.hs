@@ -1636,24 +1636,17 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
   where
     expandOpen :: PDecl -> Idris [PDecl]
     expandOpen (POpen fc ptm) = do
-        return []
-
-    expandOpen decl = return [decl]
-
-    elabOpen' :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
-    elabOpen' what info fc ptm = do
-
         -- foreword
         ist  <- getIState
-        let name = sMN 0 "open_record"  -- TODO
-        iLOG $ "elaborating open-clause: " ++ show name
+        let scrutN = decorate (sMN 0 "open_scrutinee")
+        iLOG $ "elaborating open-clause (" ++ show ptm ++ ") as " ++ show scrutN
 
         -- infer the type + check it
         ((infTm, _, _), _)  <- tclift
-                . elaborate (tt_ctxt ist) name {- (P Bound inferTy Erased) -} Erased []
-                . errAt "open_record clause of " name
+                . elaborate (tt_ctxt ist) scrutN Erased []
+                . errAt "open_record clause of " scrutN
                 . erun fc 
-                . build ist info False [] name
+                . build ist info False [] scrutN
                 $ infTerm ptm
 
         -- get the results of inference
@@ -1663,22 +1656,21 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
             retTy  = getRetTy  ty
 
         when (not $ null argTys)
-            . ifail $ "can only open fully applied records: " ++ show tm  -- TODO
+            . ifail $ show fc ++ ": can only open fully applied records: " ++ show tm  -- TODO
 
         -- get the definition of the thing being opened
         tn <- targetName retTy
         typeInfo <- fgetState $ ist_datatype tn
 
         when (length (con_names typeInfo) /= 1)
-            . ifail $ "can only open single-constructor datatypes: " ++ show tm
+            . ifail $ show fc ++ ": can only open single-constructor datatypes: " ++ show tm
 
         -- get the type of its constructor
         let ctorName = head $ con_names typeInfo
         TyDecl (DCon _ _) ctorTy <- fgetState $ ist_definition ctorName
         let fields = getArgTys ctorTy
 
-        -- elaborate individual definitions
-        mapM_ (elabDecl EAll info) $ concatMap (mkField argTys) fields
+        return []
       where
         targetName ty@(App _ _)
             | (P _ n _, args) <- unApply ty
@@ -1688,6 +1680,9 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
 
         mkField :: [(Name, Type)] -> (Name, Type) -> [PDecl]
         mkField args (fn, fty) = []  -- TODO
+
+    -- non-open decls expand to just themselves
+    expandOpen decl = return [decl]
 
     pinfo :: ElabInfo -> [(Name, PTerm)] -> [Name] -> Int -> ElabInfo
     pinfo info ns ds i
