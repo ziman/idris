@@ -1480,6 +1480,8 @@ showDeclImp o (PClass _ _ _ cs n ps _ ds)
    = text "class" <+> text (show cs) <+> text (show n) <+> text (show ps) <> line <> showDecls o ds
 showDeclImp o (PInstance _ _ cs n _ t _ ds)
    = text "instance" <+> text (show cs) <+> text (show n) <+> prettyImp o t <> line <> showDecls o ds
+showDeclImp i (POpen fc tm)
+   = text "open" <+> text (show tm)
 showDeclImp _ _ = text "..."
 -- showDeclImp (PImport o) = "import " ++ o
 

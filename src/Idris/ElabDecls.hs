@@ -1488,7 +1488,7 @@ elabClause info opts (_, PClause fc fname lhs_in [] PImpossible [])
                                 (Msg $ show lhs_in ++ " is a valid case"))
             False -> do ptm <- mkPatTm lhs_in
                         return (Left ptm, lhs)
-elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock)
+elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
    = do let tcgen = Dictionary `elem` opts
         ctxt <- getContext
 
@@ -1541,7 +1541,10 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock)
           addIBC (IBCLineApp (fc_fname fc) (fst . fc_start $ fc) (delabMV i clhs))
 
         logLvl 5 ("Checked " ++ show clhs ++ "\n" ++ show clhsty)
+
         -- Elaborate where block
+        whereblock <- concat <$> mapM expandOpen whereblock'  -- expand open-clauses
+
         ist <- getIState
         windex <- getName
         let decls = nub (concatMap declared whereblock)
@@ -1557,9 +1560,10 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock)
 
         logLvl 2 $ "Where block:\n " ++ show wbefore ++ "\n" ++ show wafter
         mapM_ (elabDecl' EAll winfo) wbefore
+
         -- Now build the RHS, using the type of the LHS as the goal.
         i <- getIState -- new implicits from where block
-        logLvl 5 (showTmImpls (expandParams decorate newargs defs (defs \\ decls) rhs_in))
+        logLvl 5 $ "impls: " ++ (showTmImpls (expandParams decorate newargs defs (defs \\ decls) rhs_in))
         let rhs = addImplBoundInf i (map fst newargs) (defs \\ decls)
                                  (expandParams decorate newargs defs (defs \\ decls) rhs_in)
         logLvl 2 $ "RHS: " ++ showTmImpls rhs
@@ -1630,6 +1634,61 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock)
            addErrRev (crhs, clhs) 
         return $ (Right (clhs, crhs), lhs)
   where
+    expandOpen :: PDecl -> Idris [PDecl]
+    expandOpen (POpen fc ptm) = do
+        return []
+
+    expandOpen decl = return [decl]
+
+    elabOpen' :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
+    elabOpen' what info fc ptm = do
+
+        -- foreword
+        ist  <- getIState
+        let name = sMN 0 "open_record"  -- TODO
+        iLOG $ "elaborating open-clause: " ++ show name
+
+        -- infer the type + check it
+        ((infTm, _, _), _)  <- tclift
+                . elaborate (tt_ctxt ist) name {- (P Bound inferTy Erased) -} Erased []
+                . errAt "open_record clause of " name
+                . erun fc 
+                . build ist info False [] name
+                $ infTerm ptm
+
+        -- get the results of inference
+        let tm = getInferTerm infTm
+            ty = getInferType infTm
+            argTys = getArgTys ty
+            retTy  = getRetTy  ty
+
+        when (not $ null argTys)
+            . ifail $ "can only open fully applied records: " ++ show tm  -- TODO
+
+        -- get the definition of the thing being opened
+        tn <- targetName retTy
+        typeInfo <- fgetState $ ist_datatype tn
+
+        when (length (con_names typeInfo) /= 1)
+            . ifail $ "can only open single-constructor datatypes: " ++ show tm
+
+        -- get the type of its constructor
+        let ctorName = head $ con_names typeInfo
+        TyDecl (DCon _ _) ctorTy <- fgetState $ ist_definition ctorName
+        let fields = getArgTys ctorTy
+
+        -- elaborate individual definitions
+        mapM_ (elabDecl EAll info) $ concatMap (mkField argTys) fields
+      where
+        targetName ty@(App _ _)
+            | (P _ n _, args) <- unApply ty
+            = return n
+        targetName ty
+            = ifail $ "can't open non-datatype: " ++ show ty
+
+        mkField :: [(Name, Type)] -> (Name, Type) -> [PDecl]
+        mkField args (fn, fty) = []  -- TODO
+
     pinfo :: ElabInfo -> [(Name, PTerm)] -> [Name] -> Int -> ElabInfo
     pinfo info ns ds i
           = let newps = params info ++ ns
@@ -2262,53 +2321,7 @@ elabInstance info syn what fc cs n ps t expn ds = do
 
 -- open record
 elabOpen :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
-elabOpen what info fc ptm = do
-
-    -- foreword
-    ist  <- getIState
-    let name = sMN 0 "open_record"  -- TODO
-    iLOG $ "elaborating open-clause: " ++ show name
-
-    -- infer the type + check it
-    ((infTm, _, _), _)  <- tclift
-            . elaborate (tt_ctxt ist) name {- (P Bound inferTy Erased) -} Erased []
-            . errAt "open_record clause of " name
-            . erun fc 
-            . build ist info False [] name
-            $ infTerm ptm
-
-    -- get the results of inference
-    let tm = getInferTerm infTm
-        ty = getInferType infTm
-        argTys = getArgTys ty
-        retTy  = getRetTy  ty
-
-    when (not $ null argTys)
-        . ifail $ "can only open fully applied records: " ++ show tm  -- TODO
-
-    -- get the definition of the thing being opened
-    tn <- targetName retTy
-    typeInfo <- fgetState $ ist_datatype tn
-
-    when (length (con_names typeInfo) /= 1)
-        . ifail $ "can only open single-constructor datatypes: " ++ show tm
-
-    -- get the type of its constructor
-    let ctorName = head $ con_names typeInfo
-    TyDecl (DCon _ _) ctorTy <- fgetState $ ist_definition ctorName
-    let fields = getArgTys ctorTy
-
-    -- elaborate individual definitions
-    mapM_ (elabDecl EAll info) $ concatMap (mkField argTys) fields
-  where
-    targetName ty@(App _ _)
-        | (P _ n _, args) <- unApply ty
-        = return n
-    targetName ty
-        = ifail $ "can't open non-datatype: " ++ show ty
-
-    mkField :: [(Name, Type)] -> (Name, Type) -> [PDecl]
-    mkField args (fn, fty) = []  -- TODO
+elabOpen what info fc ptm = ifail $ show fc ++ ": cannot currently elaborate standalone open-clauses"
 
 decorateid decorate (PTy doc argdocs s f o n t) = PTy doc argdocs s f o (decorate n) t
 decorateid decorate (PClauses f o n cs)
