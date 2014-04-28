@@ -2283,6 +2283,9 @@ elabOpen what info fc ptm = do
         argTys = getArgTys ty
         retTy  = getRetTy  ty
 
+    when (not $ null argTys)
+        . ifail $ "can only open fully applied records: " ++ show tm  -- TODO
+
     -- get the definition of the thing being opened
     tn <- targetName retTy
     typeInfo <- fgetState $ ist_datatype tn
@@ -2293,14 +2296,19 @@ elabOpen what info fc ptm = do
     -- get the type of its constructor
     let ctorName = head $ con_names typeInfo
     TyDecl (DCon _ _) ctorTy <- fgetState $ ist_definition ctorName
+    let fields = getArgTys ctorTy
 
-    iLOG $ "constructor type: " ++ show ctorTy
+    -- elaborate individual definitions
+    mapM_ (elabDecl EAll info) $ concatMap (mkField argTys) fields
   where
     targetName ty@(App _ _)
         | (P _ n _, args) <- unApply ty
         = return n
     targetName ty
         = ifail $ "can't open non-datatype: " ++ show ty
+
+    mkField :: [(Name, Type)] -> (Name, Type) -> [PDecl]
+    mkField args (fn, fty) = []  -- TODO
 
 decorateid decorate (PTy doc argdocs s f o n t) = PTy doc argdocs s f o (decorate n) t
 decorateid decorate (PClauses f o n cs)
