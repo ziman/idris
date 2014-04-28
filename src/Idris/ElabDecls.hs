@@ -8,6 +8,7 @@ import Idris.ASTUtils
 import Idris.DSL
 import Idris.Error
 import Idris.Delaborate
+import Idris.Docstrings
 import Idris.Imports
 import Idris.ElabTerm
 import Idris.Coverage
@@ -1639,7 +1640,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         -- foreword
         ist  <- getIState
         let scrutN = decorate (sMN 0 "open_scrutinee")
-        iLOG $ "elaborating open-clause (" ++ show ptm ++ ") as " ++ show scrutN
+        iLOG $ "elaborating open-clause of (" ++ show ptm ++ ") as " ++ show scrutN
 
         -- infer the type + check it
         ((infTm, _, _), _)  <- tclift
@@ -1670,13 +1671,15 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         TyDecl (DCon _ _) ctorTy <- fgetState $ ist_definition ctorName
         let fields = getArgTys ctorTy
 
-        return []
+        let scrutTy = delab ist ty
+            scrutTyDecl = PTy emptyDocstring [] defaultSyntax fc [] scrutN scrutTy
+
+        return [scrutTyDecl]
       where
-        targetName ty@(App _ _)
-            | (P _ n _, args) <- unApply ty
-            = return n
+        targetName (App f _) = targetName f
+        targetName (P (TCon _ _) n _) = return n
         targetName ty
-            = ifail $ "can't open non-datatype: " ++ show ty
+            = ifail $ show fc ++ ": can't open non-datatype: " ++ show ty
 
         mkField :: [(Name, Type)] -> (Name, Type) -> [PDecl]
         mkField args (fn, fty) = []  -- TODO
