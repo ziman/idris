@@ -1559,7 +1559,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         -- Elaborate those with a type *before* RHS, those without *after*
         let (wbefore, wafter) = sepBlocks wb
 
-        logLvl 2 $ "Where block:\n " ++ show wbefore ++ "\n" ++ show wafter
+        logLvl 2 $ "Where block:\n" ++ unlines (map show wbefore) ++ "\n" ++ unlines (map show wafter)
         mapM_ (elabDecl' EAll winfo) wbefore
 
         -- Now build the RHS, using the type of the LHS as the goal.

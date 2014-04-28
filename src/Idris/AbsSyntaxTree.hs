@@ -1277,7 +1277,7 @@ pprintPTerm ppo bnd docArgs infixes = prettySe 10 bnd
                    then fp
                    else fp <+> align (vsep (map (prettyArgSe bnd) args))
     prettySe p bnd (PCase _ scr opts) =
-      kwd "case" <+> prettySe 10 bnd scr <+> kwd "of" <> prettyBody
+      kwd "case" <+> prettySe 10 bnd scr <+> kwd "of" <+> prettyBody
       where
         prettyBody = foldr (<>) empty $ intersperse (text "|") $ map sc opts
 
