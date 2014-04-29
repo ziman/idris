@@ -1636,11 +1636,11 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         return $ (Right (clhs, crhs), lhs)
   where
     expandOpen :: (Int, PDecl) -> Idris [PDecl]
-    expandOpen (clauseNo, POpen fc ptm sel ren) = do
+    expandOpen (clauseNo, popen@(POpen fc ptm sel ren)) = do
         -- foreword
         ist  <- getIState
-        let scrutN = decorate (sMN clauseNo "open_scrutinee")
-        iLOG $ "elaborating open-clause of (" ++ show ptm ++ ") as " ++ show scrutN
+        let scrutN = sMN clauseNo "open_scrutinee"
+        iLOG $ "elaborating " ++ show popen ++ " as " ++ show scrutN
 
         -- infer the type + check it
         ((infTm, _, _), _)  <- tclift
@@ -1668,7 +1668,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         TyDecl (DCon ctorTag ctorArity) ctorTy <- fgetState $ ist_definition ctorName
 
         -- build field names with respect to renaming and interdeps
-        let fields = getFields sel ren ctorTy
+        let fields = getFields 0 sel ren ctorTy
 
         -- build the scrutinee
         let scrutTyDecl = mkTyDecl ist scrutN ty
@@ -1676,10 +1676,21 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
 
         return $
             [scrutTyDecl, scrutDecl]
-            ++ concatMap (mkField ist ctorName ctorArity argTys) (zip [0..] fields)
+            ++ concatMap (mkField ist scrutN ctorName ctorArity argTys) (zip [0..] fields)
       where
-        getFields :: OpenSelector -> [(Name, Name)] -> Type -> [(Name, Type)]
-        getFields sel ren ty = []
+        getFields :: Int -> OpenSelector -> [(Name, Name)] -> Type -> [(Name, Type)]
+        getFields i sel ren (Bind n (Pi ty) tm)
+            = (n', ty) : getFields (i+1) sel ren (substV (P Ref n' Erased) tm)
+          where
+            n'  | visible   = fromMaybe n $ lookup n ren
+                | otherwise = sMN i $ "s" ++ show clauseNo ++ "f"
+
+            visible = case sel of
+                OpenUsing  ns -> n `elem` ns
+                OpenHiding ns -> n `notElem` ns
+                OpenAll       -> True
+
+        getFields i sel ren ty = []
 
         targetName :: Type -> Idris Name
         targetName (App f _) = targetName f
@@ -1687,15 +1698,16 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         targetName ty
             = ifail $ show fc ++ ": can't open non-datatype: " ++ show ty
 
-        mkField :: IState -> Name -> Int -> [(Name, Type)] -> (Int, (Name, Type)) -> [PDecl]
-        mkField ist ctorName ctorArity args (i, (fn, fty)) = [tyDecl, tmDecl]
+        mkField :: IState -> Name -> Name -> Int -> [(Name, Type)] -> (Int, (Name, Type)) -> [PDecl]
+        mkField ist scrutN ctorName ctorArity args (i, (fn, fty)) = [tyDecl, tmDecl]
           where
             tyDecl = mkTyDecl ist fn $ prepend args fty
             tmDecl = PClauses fc [] fn [PClause fc fn lhs [] rhs []]
             lhs = mkApp (PRef fc fn) (map fst args)
-            rhs = PCase fc (mkApp ptm $ map fst args) [(pat, arg i)]
+            rhs = PCase fc (mkApp (PRef fc scrutN) $ map fst args) [(pat, arg i)]
+
             pat = PApp fc (PRef fc ctorName) [PExp 0 [] (argN j) $ arg j | j <- [0 .. ctorArity-1]]
-            argN j = sMN i "field"
+            argN j = sMN j "field"
             arg = PRef fc . argN
 
         prepend :: [(Name, Type)] -> Type -> Type
@@ -2344,7 +2356,8 @@ elabInstance info syn what fc cs n ps t expn ds = do
 
 -- open record
 elabOpen :: ElabWhat -> ElabInfo -> PDecl -> Idris ()
-elabOpen what info (POpen fc ptm sel ren) = ifail $ show fc ++ ": cannot currently elaborate standalone open-clauses"
+elabOpen what info (POpen fc ptm sel ren) =
+    ifail $ show fc ++ ": cannot currently elaborate standalone open-clauses"
 
 decorateid decorate (PTy doc argdocs s f o n t) = PTy doc argdocs s f o (decorate n) t
 decorateid decorate (PClauses f o n cs)
