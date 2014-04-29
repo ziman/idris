@@ -1713,8 +1713,10 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
                     (PRef fc ctorName)
                     [imp{ getTm = arg j } | (j, imp) <- zip [0 .. ctorArity-1] ctorImps]
 
-            argN j = sMN j $ show (pname (ctorImps !! j))
+            argN j = mkMN j (pname $ ctorImps !! j)
             arg = PRef fc . argN
+
+            mkMN i n = sMN i $ show n
 
         prepend :: [(Name, Type)] -> Type -> Type
         prepend [] ty = ty
