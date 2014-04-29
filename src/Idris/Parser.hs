@@ -1098,7 +1098,20 @@ openRecord :: SyntaxInfo -> IdrisParser [PDecl]
 openRecord syn = return <$> openRecord' syn
 
 openRecord' :: SyntaxInfo -> IdrisParser PDecl
-openRecord' syn = POpen <$> getFC <*> (reserved "open_record" *> expr syn)
+openRecord' syn = reserved "open_record" >>
+    POpen <$> getFC <*> expr syn <*> selector <*> renaming
+  where
+    selector =
+            reserved "using"  *> (OpenUsing  <$> listOf name)
+        <|> reserved "hiding" *> (OpenHiding <$> listOf name)
+        <|> pure OpenAll
+
+    renaming =
+            reserved "renaming" *> (listOf rename)
+        <|> pure []
+
+    listOf p = symbol "(" *> (p `sepBy` symbol ",") <* symbol ")"
+    rename = (,) <$> name <* reserved "to" <*> name
 
 {- * Loading and parsing -}
 {- | Parses an expression from input -}

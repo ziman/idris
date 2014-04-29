@@ -1636,7 +1636,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         return $ (Right (clhs, crhs), lhs)
   where
     expandOpen :: (Int, PDecl) -> Idris [PDecl]
-    expandOpen (clauseNo, POpen fc ptm) = do
+    expandOpen (clauseNo, POpen fc ptm sel ren) = do
         -- foreword
         ist  <- getIState
         let scrutN = decorate (sMN clauseNo "open_scrutinee")
@@ -1666,7 +1666,9 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         -- get the type of its constructor
         let ctorName = head $ con_names typeInfo
         TyDecl (DCon ctorTag ctorArity) ctorTy <- fgetState $ ist_definition ctorName
-        let fields = getArgTys ctorTy
+
+        -- build field names with respect to renaming and interdeps
+        let fields = getFields sel ren ctorTy
 
         -- build the scrutinee
         let scrutTyDecl = mkTyDecl ist scrutN ty
@@ -1676,6 +1678,9 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
             [scrutTyDecl, scrutDecl]
             ++ concatMap (mkField ist ctorName ctorArity argTys) (zip [0..] fields)
       where
+        getFields :: OpenSelector -> [(Name, Name)] -> Type -> [(Name, Type)]
+        getFields sel ren ty = []
+
         targetName :: Type -> Idris Name
         targetName (App f _) = targetName f
         targetName (P (TCon _ _) n _) = return n
@@ -2338,8 +2343,8 @@ elabInstance info syn what fc cs n ps t expn ds = do
 -}
 
 -- open record
-elabOpen :: ElabWhat -> ElabInfo -> FC -> PTerm -> Idris ()
-elabOpen what info fc ptm = ifail $ show fc ++ ": cannot currently elaborate standalone open-clauses"
+elabOpen :: ElabWhat -> ElabInfo -> PDecl -> Idris ()
+elabOpen what info (POpen fc ptm sel ren) = ifail $ show fc ++ ": cannot currently elaborate standalone open-clauses"
 
 decorateid decorate (PTy doc argdocs s f o n t) = PTy doc argdocs s f o (decorate n) t
 decorateid decorate (PClauses f o n cs)
@@ -2495,8 +2500,8 @@ elabDecl' what info (PProvider syn fc provWhat n tp tm)
          elabProvider info syn fc provWhat n tp tm
 elabDecl' what info (PTransform fc safety old new)
     = elabTransform info fc safety old new
-elabDecl' what info (POpen fc tm)
-    = elabOpen what info fc tm
+elabDecl' what info popen@(POpen fc ptm sel ren)
+    = elabOpen what info popen
 elabDecl' _ _ _ = return () -- skipped this time
 
 elabCaseBlock info opts d@(PClauses f o n ps)

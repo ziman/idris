@@ -497,6 +497,13 @@ data ProvideWhat = ProvTerm      -- ^ only allow providing terms
                  | ProvAny       -- ^ either is ok
     deriving (Show, Eq)
 
+-- | What to import in an open-clause
+data OpenSelector
+    = OpenUsing  [Name]  -- ^ import only these names
+    | OpenHiding [Name]  -- ^ import everything except these names
+    | OpenAll            -- ^ import everything
+    deriving (Show, Eq)
+
 -- | Top-level declarations such as compiler directives, definitions,
 -- datatypes and typeclasses.
 data PDecl' t
@@ -532,7 +539,7 @@ data PDecl' t
    | PProvider SyntaxInfo FC ProvideWhat Name t t -- ^ Type provider. The first t is the type, the second is the term
    | PTransform FC Bool t t -- ^ Source-to-source transformation rule. If
                             -- bool is True, lhs and rhs must be convertible
-   | POpen FC PTerm  -- agda-style "open Record"
+   | POpen FC PTerm OpenSelector [(Name, Name)]  -- the list is the "renaming" part
  deriving Functor
 {-!
 deriving instance Binary PDecl'
@@ -603,7 +610,7 @@ declared (PDSL n _) = [n]
 declared (PSyntax _ _) = []
 declared (PMutual _ ds) = concatMap declared ds
 declared (PDirective _) = []
-declared (POpen _ tm) = []  -- TODO: we can't know the declared names in a pure function
+declared (POpen _ _ _ _) = []  -- TODO: we can't know the declared names in a pure function
 
 -- get the names declared, not counting nested parameter blocks
 tldeclared :: PDecl -> [Name]
@@ -639,7 +646,7 @@ defined (PDSL n _) = [n]
 defined (PSyntax _ _) = []
 defined (PMutual _ ds) = concatMap defined ds
 defined (PDirective _) = []
-defined (POpen _ tm) = []  -- TODO: we can't see which names are declared here
+defined (POpen _ _ _ _) = []  -- TODO: we can't see which names are declared here
 --defined _ = []
 
 updateN :: [(Name, Name)] -> Name -> Name
@@ -1480,8 +1487,8 @@ showDeclImp o (PClass _ _ _ cs n ps _ ds)
    = text "class" <+> text (show cs) <+> text (show n) <+> text (show ps) <> line <> showDecls o ds
 showDeclImp o (PInstance _ _ cs n _ t _ ds)
    = text "instance" <+> text (show cs) <+> text (show n) <+> prettyImp o t <> line <> showDecls o ds
-showDeclImp i (POpen fc tm)
-   = text "open" <+> text (show tm)
+showDeclImp i (POpen fc tm sel ren)
+   = text "open" <+> text (show tm) <+> text (show sel) <+> text "renaming" <+> text (show ren)
 showDeclImp _ _ = text "..."
 -- showDeclImp (PImport o) = "import " ++ o
 
