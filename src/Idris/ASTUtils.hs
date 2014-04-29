@@ -157,3 +157,11 @@ ist_datatype :: Name -> Field IState TypeInfo
 ist_datatype n =
       ctxt_lookupExact n
     . Field idris_datatypes (\v ist -> ist{ idris_datatypes = v })
+
+instance InitialValue [PArg] where
+    initialValue = error "implicit info not found"
+
+ist_implicits :: Name -> Field IState [PArg]
+ist_implicits n =
+      ctxt_lookupExact n
+    . Field idris_implicits (\v ist -> ist{ idris_implicits = v })

@@ -385,6 +385,7 @@ patvar n = do env <- get_env
                                     UN _ -> return $! n
                                     MN _ _ -> unique_hole n
                                     NS _ _ -> return $! n
+                                    _ -> fail $ "unrecognised patvar: " ++ show n
                         processTactic' (PatVar n')
 
 patbind :: Name -> Elab' aux ()

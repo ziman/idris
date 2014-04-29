@@ -1666,6 +1666,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         -- get the type of its constructor
         let ctorName = head $ con_names typeInfo
         TyDecl (DCon ctorTag ctorArity) ctorTy <- fgetState $ ist_definition ctorName
+        ctorImps <- fgetState $ ist_implicits ctorName
 
         -- build field names with respect to renaming and interdeps
         let fields = getFields 0 sel ren ctorTy
@@ -1676,7 +1677,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
 
         return $
             [scrutTyDecl, scrutDecl]
-            ++ concatMap (mkField ist scrutN ctorName ctorArity argTys) (zip [0..] fields)
+            ++ concatMap (mkField ist scrutN ctorName ctorArity ctorImps argTys) (zip [0..] fields)
       where
         getFields :: Int -> OpenSelector -> [(Name, Name)] -> Type -> [(Name, Type)]
         getFields i sel ren (Bind n (Pi ty) tm)
@@ -1698,16 +1699,21 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
         targetName ty
             = ifail $ show fc ++ ": can't open non-datatype: " ++ show ty
 
-        mkField :: IState -> Name -> Name -> Int -> [(Name, Type)] -> (Int, (Name, Type)) -> [PDecl]
-        mkField ist scrutN ctorName ctorArity args (i, (fn, fty)) = [tyDecl, tmDecl]
+        mkField :: IState -> Name -> Name -> Int -> [PArg] -> [(Name, Type)] -> (Int, (Name, Type)) -> [PDecl]
+        mkField ist scrutN ctorName ctorArity ctorImps args (i, (fn, fty))
+            = [tyDecl, tmDecl]
           where
             tyDecl = mkTyDecl ist fn $ prepend args fty
             tmDecl = PClauses fc [] fn [PClause fc fn lhs [] rhs []]
+
             lhs = mkApp (PRef fc fn) (map fst args)
             rhs = PCase fc (mkApp (PRef fc scrutN) $ map fst args) [(pat, arg i)]
 
-            pat = PApp fc (PRef fc ctorName) [PExp 0 [] (argN j) $ arg j | j <- [0 .. ctorArity-1]]
-            argN j = sMN j "field"
+            pat = PApp fc
+                    (PRef fc ctorName)
+                    [imp{ getTm = arg j } | (j, imp) <- zip [0 .. ctorArity-1] ctorImps]
+
+            argN j = sMN j $ show (pname (ctorImps !! j))
             arg = PRef fc . argN
 
         prepend :: [(Name, Type)] -> Type -> Type
@@ -1716,7 +1722,7 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
 
         mkApp :: PTerm -> [Name] -> PTerm
         mkApp tm [] = tm
-        mkApp tm ns = PApp fc tm $ map (PExp 0 [] (sMN 0 "__app") . PRef fc) ns
+        mkApp tm ns = PApp fc tm $ map (pexp . PRef fc) ns
 
         mkTyDecl :: IState -> Name -> Type -> PDecl
         mkTyDecl ist n ty = PTy emptyDocstring [] defaultSyntax fc [] n (delab ist ty)
