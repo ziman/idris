@@ -28,31 +28,33 @@ specType :: [(PEArgType, Term)] -> Type -> (Type, [(PEArgType, Term)])
 specType args ty = let (t, args') = runState (unifyEq args ty) [] in
                        (st (map fst args') t, map fst args')
   where
-    st ((ExplicitS, v) : xs) (Bind n (Pi t) sc)
+    st ((ExplicitS, v) : xs) (Bind n (Pi t _) sc)
          = Bind n (Let t v) (st xs sc)
-    st ((ImplicitS, v) : xs) (Bind n (Pi t) sc)
+    st ((ImplicitS, v) : xs) (Bind n (Pi t _) sc)
          = Bind n (Let t v) (st xs sc)
-    st ((UnifiedD, _) : xs) (Bind n (Pi t) sc)
+    st ((UnifiedD, _) : xs) (Bind n (Pi t _) sc)
          = st xs sc
-    st (_ : xs) (Bind n (Pi t) sc)
-         = Bind n (Pi t) (st xs sc)
+    st (_ : xs) (Bind n (Pi t e) sc)
+         = Bind n (Pi t e) (st xs sc)
     st _ t = t
 
-    unifyEq (imp@(ImplicitD, v) : xs) (Bind n (Pi t) sc)
+    -- TODO: perhaps we could reap the knowledge of whether this Pi is to be erased here (?)
+    unifyEq (imp@(ImplicitD, v) : xs) (Bind n (Pi t e) sc)
          = do amap <- get
               case lookup imp amap of
                    Just n' -> 
                         do put (amap ++ [((UnifiedD, Erased), n)])
                            sc' <- unifyEq xs (subst n (P Bound n' Erased) sc)
-                           return (Bind n (Pi t) sc') -- erase later
+                           return (Bind n (Pi t e) sc') -- erase later
                    _ -> do put (amap ++ [(imp, n)])
                            sc' <- unifyEq xs sc
-                           return (Bind n (Pi t) sc')
-    unifyEq (x : xs) (Bind n (Pi t) sc)
+                           return (Bind n (Pi t e) sc')
+
+    unifyEq (x : xs) (Bind n (Pi t e) sc)
          = do args <- get
               put (args ++ [(x, n)])
               sc' <- unifyEq xs sc
-              return (Bind n (Pi t) sc')
+              return (Bind n (Pi t e) sc')
     unifyEq xs t = do args <- get
                       put (args ++ (zip xs (repeat (sUN "_"))))
                       return t
@@ -60,9 +62,9 @@ specType args ty = let (t, args') = runState (unifyEq args ty) [] in
 mkPE_TyDecl :: IState -> [(PEArgType, Term)] -> Type -> PTerm
 mkPE_TyDecl ist args ty = mkty args ty
   where
-    mkty ((ExplicitD, v) : xs) (Bind n (Pi t) sc)
+    mkty ((ExplicitD, v) : xs) (Bind n (Pi t _) sc) -- TODO
        = PPi expl n (delab ist t) (mkty xs sc)
-    mkty ((ImplicitD, v) : xs) (Bind n (Pi t) sc)
+    mkty ((ImplicitD, v) : xs) (Bind n (Pi t _) sc)
          | concreteClass ist t = mkty xs sc
          | classConstraint ist t 
              = PPi constraint n (delab ist t) (mkty xs sc)

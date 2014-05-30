@@ -109,7 +109,7 @@ match_unify ctxt env topx topy inj holes from =
                                            h2 <- un bnames vx vy
                                            combine bnames h1 h2
     uB bnames (Lam tx) (Lam ty) = un bnames tx ty
-    uB bnames (Pi tx) (Pi ty) = un bnames tx ty
+    uB bnames (Pi tx e) (Pi ty e') | e == e' = un bnames tx ty
     uB bnames x y = do UI s f <- get
                        let r = recoverable (normalise ctxt env (binderTy x)) 
                                            (normalise ctxt env (binderTy y))
@@ -367,18 +367,18 @@ unify ctxt env topx topy inj holes from =
     -- f D unifies with t -> D. This is dubious, but it helps with type
     -- class resolution for type classes over functions.
 
-    un' fn bnames (App f x) (Bind n (Pi t) y)
+    un' fn bnames (App f x) (Bind n (Pi t e) y)
       | noOccurrence n y && injectiveApp f
         = do ux <- un' False bnames x y
              uf <- un' False bnames f (Bind (sMN 0 "uv") (Lam (TType (UVar 0))) 
-                                      (Bind n (Pi t) (V 1)))
+                                      (Bind n (Pi t e) (V 1)))
              combine bnames ux uf
              
-    un' fn bnames (Bind n (Pi t) y) (App f x)
+    un' fn bnames (Bind n (Pi t e) y) (App f x)
       | noOccurrence n y && injectiveApp f
         = do ux <- un' False bnames y x
              uf <- un' False bnames (Bind (sMN 0 "uv") (Lam (TType (UVar 0))) 
-                                    (Bind n (Pi t) (V 1))) f
+                                    (Bind n (Pi t e) (V 1))) f
              combine bnames ux uf
              
     un' fn bnames (Bind x bx sx) (Bind y by sy)
@@ -387,7 +387,7 @@ unify ctxt env topx topy inj holes from =
                 h2 <- un' False (((x,y),binderTy bx):bnames) sx sy
                 combine bnames h1 h2
       where sameBinder (Lam _) (Lam _) = True
-            sameBinder (Pi _) (Pi _) = True
+            sameBinder (Pi _ _) (Pi _ _) = True
             sameBinder _ _ = False
     un' fn bnames x y
         | OK True <- convEq' ctxt holes x y = do sc 1; return []
@@ -519,7 +519,7 @@ unify ctxt env topx topy inj holes from =
              sc 1
              combine bnames h1 h2
     uB bnames (Lam tx) (Lam ty) = do sc 1; un' False bnames tx ty
-    uB bnames (Pi tx) (Pi ty) = do sc 1; un' False bnames tx ty
+    uB bnames (Pi tx _) (Pi ty _) = do sc 1; un' False bnames tx ty
     uB bnames (Hole tx) (Hole ty) = un' False bnames tx ty
     uB bnames (PVar tx) (PVar ty) = un' False bnames tx ty
     uB bnames x y = do UI s f <- get
@@ -615,10 +615,10 @@ recoverable p@(P _ n _) (App f a) = recoverable p f
 recoverable (App f a) p@(P _ _ _) = recoverable f p
 recoverable (App f a) (App f' a')
     = recoverable f f' -- && recoverable a a'
-recoverable f (Bind _ (Pi _) sc)
+recoverable f (Bind _ (Pi _ _) sc)
     | (P (DCon _ _) _ _, _) <- unApply f = False
     | (P (TCon _ _) _ _, _) <- unApply f = False
-recoverable (Bind _ (Pi _) sc) f
+recoverable (Bind _ (Pi _ _) sc) f
     | (P (DCon _ _) _ _, _) <- unApply f = False
     | (P (TCon _ _) _ _, _) <- unApply f = False
 recoverable (Bind _ (Lam _) sc) f = recoverable sc f

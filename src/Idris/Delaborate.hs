@@ -11,7 +11,7 @@ import Idris.Core.TT
 import Idris.Core.Evaluate
 import Idris.ErrReverse
 
-import Data.List (intersperse)
+import Data.List (intersperse, nub)
 import qualified Data.Text as T
 
 import Debug.Trace
@@ -56,18 +56,22 @@ delabTy' ist imps tm fullname mvs = de [] imps tm
                                   _ -> PRef un n
     de env _ (Bind n (Lam ty) sc)
           = PLam n (de env [] ty) (de ((n,n):env) [] sc)
-    de env ((PImp { argopts = opts }):is) (Bind n (Pi ty) sc)
-          = PPi (Imp opts Dynamic False) n (de env [] ty) (de ((n,n):env) is sc)
-    de env (PConstraint _ _ _ _:is) (Bind n (Pi ty) sc)
+    de env ((PImp { argopts = opts }):is) (Bind n (Pi ty erased) sc)
+          = PPi (Imp (add erased opts) Dynamic False) n (de env [] ty) (de ((n,n):env) is sc)
+        where
+            add True  = nub . (InaccessibleArg :)
+            add False = id
+
+    de env (PConstraint _ _ _ _:is) (Bind n (Pi ty _) sc)
           = PPi constraint n (de env [] ty) (de ((n,n):env) is sc)
-    de env (PTacImplicit _ _ _ tac _:is) (Bind n (Pi ty) sc)
+    de env (PTacImplicit _ _ _ tac _:is) (Bind n (Pi ty _) sc)
           = PPi (tacimpl tac) n (de env [] ty) (de ((n,n):env) is sc)
-    de env (plic:is) (Bind n (Pi ty) sc)
+    de env (plic:is) (Bind n (Pi ty _) sc)
           = PPi (Exp (argopts plic) Dynamic False)
                 n
                 (de env [] ty)
                 (de ((n,n):env) is sc)
-    de env [] (Bind n (Pi ty) sc)
+    de env [] (Bind n (Pi ty _) sc)
           = PPi expl n (de env [] ty) (de ((n,n):env) [] sc)
     de env _ (Bind n (Let ty val) sc)
         = PLet n (de env [] ty) (de env [] val) (de ((n,n):env) [] sc)

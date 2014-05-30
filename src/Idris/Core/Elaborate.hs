@@ -255,7 +255,7 @@ checkInjective (tm, l, r) = do ctxt <- get_context
         isInj ctxt (App f a) = isInj ctxt f
         isInj ctxt (Constant _) = True
         isInj ctxt (TType _) = True
-        isInj ctxt (Bind _ (Pi _) sc) = True
+        isInj ctxt (Bind _ (Pi _ _) sc) = True
         isInj ctxt _ = False
 
 -- get instance argument names
@@ -452,7 +452,7 @@ prepare_apply fn imps =
              -> [(Name, Name)] -- ^ Accumulator for produced claims
              -> [Name] -- ^ Hypotheses
              -> Elab' aux [(Name, Name)] -- ^ The names of the arguments and their holes, resp.
-    mkClaims (Bind n' (Pi t_in) sc) (i : is) claims hs =
+    mkClaims (Bind n' (Pi t_in _) sc) (i : is) claims hs =
         do let t = rebind hs t_in
            n <- getNameFrom (mkMN n')
 --            when (null claims) (start_unify n)
@@ -550,7 +550,7 @@ apply_elab n args =
     priOrder _ Nothing = GT
     priOrder (Just (x, _)) (Just (y, _)) = compare x y
 
-    doClaims (Bind n' (Pi t) sc) (i : is) claims =
+    doClaims (Bind n' (Pi t _) sc) (i : is) claims =
         do n <- unique_hole (mkMN n')
            when (null claims) (start_unify n)
            let sc' = instantiate (P Bound n t) sc
@@ -585,13 +585,13 @@ checkPiGoal :: Name -> Elab' aux ()
 checkPiGoal n
             = do g <- goal
                  case g of
-                    Bind _ (Pi _) _ -> return ()
+                    Bind _ (Pi _ _) _ -> return ()
                     _ -> do a <- getNameFrom (sMN 0 "pargTy")
                             b <- getNameFrom (sMN 0 "pretTy")
                             f <- getNameFrom (sMN 0 "pf")
                             claim a RType
                             claim b RType
-                            claim f (RBind n (Pi (Var a)) (Var b))
+                            claim f (RBind n (Pi (Var a) False) (Var b)) -- well, TODO
                             movelast a
                             movelast b
                             fill (Var f)
@@ -606,7 +606,7 @@ simple_app fun arg appstr =
        s <- getNameFrom (sMN 0 "s")
        claim a RType
        claim b RType
-       claim f (RBind (sMN 0 "aX") (Pi (Var a)) (Var b))
+       claim f (RBind (sMN 0 "aX") (Pi (Var a) False) (Var b)) -- TODO
        tm <- get_term
        start_unify s
        claim s (Var a)

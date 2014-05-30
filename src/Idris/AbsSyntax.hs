@@ -1054,7 +1054,7 @@ addStatics n tm ptm =
        putIState $ i { idris_statics = addDef n stpos (idris_statics i) }
        addIBC (IBCStatic n)
   where
-    initStatics (Bind n (Pi ty) sc) (PPi p _ _ s)
+    initStatics (Bind n (Pi ty _) sc) (PPi p _ _ s)
             = let (static, dynamic) = initStatics (instantiate (P Bound n ty) sc) s in
                   if pstatic p == Static then ((n, ty) : static, dynamic)
                     else if (not (searchArg p)) 
@@ -1062,7 +1062,7 @@ addStatics n tm ptm =
                             else (static, dynamic)
     initStatics t pt = ([], [])
 
-    freeArgNames (Bind n (Pi ty) sc) 
+    freeArgNames (Bind n (Pi ty _) sc) 
           = nub $ freeArgNames ty 
     freeArgNames tm = let (_, args) = unApply tm in
                           concatMap freeNames args
@@ -1074,7 +1074,7 @@ addStatics n tm ptm =
     searchArg (TacImp _ _ _) = True
     searchArg _ = False
 
-    staticList sts (Bind n (Pi _) sc) = (n `elem` sts) : staticList sts sc
+    staticList sts (Bind n (Pi _ _) sc) = (n `elem` sts) : staticList sts sc
     staticList _ _ = []
 
 -- Dealing with implicit arguments
@@ -1512,7 +1512,7 @@ stripUnmatchable :: IState -> PTerm -> PTerm
 stripUnmatchable i (PApp fc fn args) = PApp fc fn (fmap (fmap su) args) where
     su :: PTerm -> PTerm
     su (PRef fc f)
-       | (Bind n (Pi t) sc :_) <- lookupTy f (tt_ctxt i) 
+       | (Bind n (Pi t _) sc :_) <- lookupTy f (tt_ctxt i) 
           = Placeholder
     su (PApp fc fn args) 
        = PApp fc fn (fmap (fmap su) args)

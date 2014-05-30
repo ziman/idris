@@ -72,13 +72,13 @@ check' holes ctxt env top = chk env top where
       = do (fv, fty) <- chk env f
            (av, aty) <- chk env a
            let fty' = case uniqueBinders (map fst env) (finalise fty) of
-                        ty@(Bind x (Pi s) t) -> ty
+                        ty@(Bind x (Pi s _) t) -> ty
                         _ -> uniqueBinders (map fst env)
                                  $ case hnf ctxt env fty of
-                                     ty@(Bind x (Pi s) t) -> ty
+                                     ty@(Bind x (Pi s _) t) -> ty
                                      _ -> normalise ctxt env fty
            case fty' of
-             Bind x (Pi s) t ->
+             Bind x (Pi s _) t ->
 --                trace ("Converting " ++ show aty ++ " and " ++ show s ++
 --                       " from " ++ show fv ++ " : " ++ show fty) $
                  do convertsC ctxt env aty s
@@ -93,7 +93,7 @@ check' holes ctxt env top = chk env top where
     -- make sure bound names in function types are locally unique, machine
     -- generated names, we'll be fine.
     -- NOTE: now replaced with 'uniqueBinders' above
-    where renameBinders i (Bind x (Pi s) t) = Bind (sMN i "binder") (Pi s)
+    where renameBinders i (Bind x (Pi s e) t) = Bind (sMN i "binder") (Pi s e)
                                                    (renameBinders (i+1) t)
           renameBinders i sc = sc
   chk env RType
@@ -121,14 +121,14 @@ check' holes ctxt env top = chk env top where
           constType _       = TType (UVal 0)
   chk env (RForce t) = do (_, ty) <- chk env t
                           return (Erased, ty)
-  chk env (RBind n (Pi s) t)
+  chk env (RBind n (Pi s e) t)
       = do (sv, st) <- chk env s
-           (tv, tt) <- chk ((n, Pi sv) : env) t
+           (tv, tt) <- chk ((n, Pi sv e) : env) t
            (v, cs) <- get
            let TType su = normalise ctxt env st
            let TType tu = normalise ctxt env tt
            when (not holes) $ put (v+1, ULE su (UVar v):ULE tu (UVar v):cs)
-           return (Bind n (Pi (uniqueBinders (map fst env) sv))
+           return (Bind n (Pi (uniqueBinders (map fst env) sv) e) -- TODO: is this correct?
                               (pToV n tv), TType (UVar v))
   chk env (RBind n b sc)
       = do b' <- checkBinder b
@@ -140,12 +140,12 @@ check' holes ctxt env top = chk env top where
                  let tt' = normalise ctxt env tt
                  lift $ isType ctxt env tt'
                  return (Lam tv)
-          checkBinder (Pi t)
+          checkBinder (Pi t e)
             = do (tv, tt) <- chk env t
                  let tv' = normalise ctxt env tv
                  let tt' = normalise ctxt env tt
                  lift $ isType ctxt env tt'
-                 return (Pi tv)
+                 return (Pi tv e)
           checkBinder (Let t v)
             = do (tv, tt) <- chk env t
                  (vv, vt) <- chk env v
@@ -202,9 +202,9 @@ check' holes ctxt env top = chk env top where
                  return (PVTy tv)
 
           discharge n (Lam t) scv sct
-            = return (Bind n (Lam t) scv, Bind n (Pi t) sct)
-          discharge n (Pi t) scv sct
-            = return (Bind n (Pi t) scv, sct)
+            = return (Bind n (Lam t) scv, Bind n (Pi t False) sct) -- TODO
+          discharge n (Pi t e) scv sct
+            = return (Bind n (Pi t e) scv, sct)
           discharge n (Let t v) scv sct
             = return (Bind n (Let t v) scv, Bind n (Let t v) sct)
           discharge n (NLet t v) scv sct

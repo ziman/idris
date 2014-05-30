@@ -107,7 +107,7 @@ computeDagP t = (reverse (map f args), retTy) where
   (numArgs, args, retTy) = go 0 [] t
 
   -- NOTE : args are in reverse order
-  go k args (Bind n (Pi t) sc) = go (succ k) ( (n, t) : args ) sc
+  go k args (Bind n (Pi t _) sc) = go (succ k) ( (n, t) : args ) sc
   go k args retTy = (k, args, retTy)
 
   usedVars :: Ord n => TT n -> Set n

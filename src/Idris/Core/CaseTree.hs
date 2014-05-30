@@ -369,11 +369,13 @@ toPat reflect tc tms = evalState (mapM (\x -> toPat' x []) tms) []
     toPat' (Constant PtrType) [] = return PTyPat
     toPat' (Constant VoidType) [] = return PTyPat
     toPat' (Constant x) [] = return $ PConst x
-    toPat' (Bind n (Pi t) sc) [] | reflect && noOccurrence n sc
+    toPat' (Bind n (Pi t erased) sc) []
+          | reflect && noOccurrence n sc
           = do t' <- toPat' t []
                sc' <- toPat' sc []
                return $ PReflected (sUN "->") (t':sc':[])
-    toPat' (P _ n _) args | reflect
+    toPat' (P _ n _) args
+          | reflect
           = do args' <- mapM (\x -> toPat' x []) args
                return $ PReflected n args'
     toPat' t            _  = return PAny

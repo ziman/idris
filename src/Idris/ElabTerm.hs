@@ -410,7 +410,7 @@ elab ist info pattern opts fn tm
                                        ans <- claimArgTys env xs
                                        return ((aval, (True, (Var an))) : ans)
              fnTy [] ret  = forget ret
-             fnTy ((x, (_, xt)) : xs) ret = RBind x (Pi xt) (fnTy xs ret)
+             fnTy ((x, (_, xt)) : xs) ret = RBind x (Pi xt False) (fnTy xs ret) -- TODO
 
              localVar env (PRef _ x)
                            = case lookup x env of
@@ -1108,9 +1108,9 @@ runTac autoSolve ist fn tac
         where tacticTy = Var (reflm "Tactic")
               listTy = Var (sNS (sUN "List") ["List", "Prelude"])
               scriptTy = (RBind (sMN 0 "__pi_arg")
-                                (Pi (RApp listTy envTupleType))
+                                (Pi (RApp listTy envTupleType) False) -- TODO
                                     (RBind (sMN 1 "__pi_arg")
-                                           (Pi (Var $ reflm "TT")) tacticTy))
+                                           (Pi (Var $ reflm "TT") False) tacticTy)) -- TODO
     runT (ByReflection tm) -- run the reflection function 'tm' on the
                            -- goal, then apply the resulting reflected Tactic
         = do tgoal <- goal
@@ -1348,7 +1348,7 @@ reifyTTBinderApp :: (Term -> ElabD a) -> Name -> [Term] -> ElabD (Binder a)
 reifyTTBinderApp reif f [t]
                       | f == reflm "Lam" = liftM Lam (reif t)
 reifyTTBinderApp reif f [t]
-                      | f == reflm "Pi" = liftM Pi (reif t)
+                      | f == reflm "Pi" = liftM (flip Pi False) (reif t) -- TODO
 reifyTTBinderApp reif f [x, y]
                       | f == reflm "Let" = liftM2 Let (reif x) (reif y)
 reifyTTBinderApp reif f [x, y]
@@ -1462,7 +1462,7 @@ reflectName n = Var (reflm "NErased") -- special name, not yet implemented
 reflectBinder :: Binder Term -> Raw
 reflectBinder (Lam t)
    = reflCall "Lam" [Var (reflm "TT"), reflect t]
-reflectBinder (Pi t)
+reflectBinder (Pi t _)
    = reflCall "Pi" [Var (reflm "TT"), reflect t]
 reflectBinder (Let x y)
    = reflCall "Let" [Var (reflm "TT"), reflect x, reflect y]

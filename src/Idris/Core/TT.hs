@@ -615,7 +615,8 @@ deriving instance NFData Raw
 -- the types of bindings (and their values, if any); the attached identifiers are part
 -- of the 'Bind' constructor for the 'TT' type.
 data Binder b = Lam   { binderTy  :: !b {-^ type annotation for bound variable-}}
-              | Pi    { binderTy  :: !b }
+              | Pi    { binderTy  :: !b,
+                        binderErasable :: !Bool }
                 {-^ A binding that occurs in a function type expression, e.g. @(x:Int) -> ...@ -}
               | Let   { binderTy  :: !b,
                         binderVal :: b {-^ value for bound variable-}}
@@ -638,7 +639,7 @@ deriving instance NFData Binder
 
 instance Sized a => Sized (Binder a) where
   size (Lam ty) = 1 + size ty
-  size (Pi ty) = 1 + size ty
+  size (Pi ty _) = 1 + size ty
   size (Let ty val) = 1 + size ty + size val
   size (NLet ty val) = 1 + size ty + size val
   size (Hole ty) = 1 + size ty
@@ -652,9 +653,9 @@ fmapMB f (Let t v)   = liftM2 Let (f t) (f v)
 fmapMB f (NLet t v)  = liftM2 NLet (f t) (f v)
 fmapMB f (Guess t v) = liftM2 Guess (f t) (f v)
 fmapMB f (Lam t)     = liftM Lam (f t)
-fmapMB f (Pi t)      = liftM Pi (f t)
+fmapMB f (Pi t e)    = liftM (flip Pi e) (f t)
 fmapMB f (Hole t)    = liftM Hole (f t)
-fmapMB f (GHole i t)   = liftM (GHole i) (f t)
+fmapMB f (GHole i t) = liftM (GHole i) (f t)
 fmapMB f (PVar t)    = liftM PVar (f t)
 fmapMB f (PVTy t)    = liftM PVTy (f t)
 
@@ -817,7 +818,7 @@ isInjective (P (DCon _ _) _ _) = True
 isInjective (P (TCon _ _) _ _) = True
 isInjective (Constant _)       = True
 isInjective (TType x)            = True
-isInjective (Bind _ (Pi _) sc) = True
+isInjective (Bind _ (Pi _ _) sc) = True
 isInjective (App f a)          = isInjective f
 isInjective _                  = False
 
@@ -983,7 +984,7 @@ freeNames _ = []
 
 -- | Return the arity of a (normalised) type
 arity :: TT n -> Int
-arity (Bind n (Pi t) sc) = 1 + arity sc
+arity (Bind n (Pi t _) sc) = 1 + arity sc
 arity _ = 0
 
 -- | Deconstruct an application; returns the function and a list of arguments
@@ -1040,13 +1041,13 @@ bindTyArgs b xs = bindAll (map (\ (n, ty) -> (n, b ty)) xs)
 -- | Return a list of pairs of the names of the outermost 'Pi'-bound
 -- variables in the given term, together with their types.
 getArgTys :: TT n -> [(n, TT n)]
-getArgTys (Bind n (Pi t) sc) = (n, t) : getArgTys sc
+getArgTys (Bind n (Pi t _) sc) = (n, t) : getArgTys sc
 getArgTys _ = []
 
 getRetTy :: TT n -> TT n
 getRetTy (Bind n (PVar _) sc) = getRetTy sc
 getRetTy (Bind n (PVTy _) sc) = getRetTy sc
-getRetTy (Bind n (Pi _) sc)   = getRetTy sc
+getRetTy (Bind n (Pi _ _) sc)   = getRetTy sc
 getRetTy sc = sc
 
 uniqueNameFrom :: [Name] -> [Name] -> Name
@@ -1152,7 +1153,7 @@ prettyEnv env t = prettyEnv' env t False
         else
           lbracket <+> text (show i) <+> rbracket
       | otherwise      = text "unbound" <+> text (show i) <+> text "!"
-    prettySe p env (Bind n b@(Pi t) sc) debug
+    prettySe p env (Bind n b@(Pi t _) sc) debug
       | noOccurrence n sc && not debug =
           bracket p 2 $ prettySb env n b debug <> prettySe 10 ((n, b):env) sc debug
     prettySe p env (Bind n b sc) debug =
@@ -1168,7 +1169,9 @@ prettyEnv env t = prettyEnv' env t False
     -- Render a `Binder` and its name
     prettySb env n (Lam t) = prettyB env "λ" "=>" n t
     prettySb env n (Hole t) = prettyB env "?defer" "." n t
-    prettySb env n (Pi t) = prettyB env "(" ") ->" n t
+    prettySb env n (Pi t erased)
+        | erased    = prettyB env  "(" ") ->" n t
+        | otherwise = prettyB env ".(" ") ->" n t
     prettySb env n (PVar t) = prettyB env "pat" "." n t
     prettySb env n (PVTy t) = prettyB env "pty" "." n t
     prettySb env n (Let t v) = prettyBv env "let" "in" n t v
@@ -1194,7 +1197,7 @@ showEnv' env t dbg = se 10 env t where
                                     = (show $ fst $ env!!i) ++
                                       if dbg then "{" ++ show i ++ "}" else ""
                    | otherwise = "!!V " ++ show i ++ "!!"
-    se p env (Bind n b@(Pi t) sc)
+    se p env (Bind n b@(Pi t _) sc)
         | noOccurrence n sc && not dbg = bracket p 2 $ se 1 env t ++ " -> " ++ se 10 ((n,b):env) sc
     se p env (Bind n b sc) = bracket p 2 $ sb env n b ++ se 10 ((n,b):env) sc
     se p env (App f a) = bracket p 1 $ se 1 env f ++ " " ++ se 0 env a
@@ -1207,7 +1210,9 @@ showEnv' env t dbg = se 10 env t where
     sb env n (Lam t)  = showb env "\\ " " => " n t
     sb env n (Hole t) = showb env "? " ". " n t
     sb env n (GHole i t) = showb env "?defer " ". " n t
-    sb env n (Pi t)   = showb env "(" ") -> " n t
+    sb env n (Pi t erased)
+        | erased    = showb env ".(" ") -> " n t
+        | otherwise = showb env  "(" ") -> " n t
     sb env n (PVar t) = showb env "pat " ". " n t
     sb env n (PVTy t) = showb env "pty " ". " n t
     sb env n (Let t v)   = showbv env "let " " in " n t v
