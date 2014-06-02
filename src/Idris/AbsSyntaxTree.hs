@@ -668,7 +668,7 @@ data PTerm = PQuote Raw
            | PInferRef FC Name -- ^ A name to be defined later
            | PPatvar FC Name
            | PLam Name PTerm PTerm
-           | PPi  Plicity Name PTerm PTerm -- ^ (n : t1) -> t2
+           | PPi Plicity Name PTerm PTerm -- ^ (n : t1) -> t2
            | PLet Name PTerm PTerm PTerm
            | PTyped PTerm PTerm -- ^ Term with explicit type
            | PApp FC PTerm [PArg] -- ^ e.g. IO (), List Char, length x
@@ -831,7 +831,7 @@ data PArg' t = PImp { priority :: Int,
                               getTm :: t }
     deriving (Show, Eq, Functor)
 
-data ArgOpt = HideDisplay | InaccessibleArg
+data ArgOpt = HideDisplay | EraseArg
     deriving (Show, Eq)
 
 instance Sized a => Sized (PArg' a) where
@@ -1194,26 +1194,30 @@ pprintPTerm ppo bnd docArgs infixes = prettySe 10 bnd
       kwd "let" <+> bindingOf n False <+> text "=" </>
       prettySe 10 bnd v <+> kwd "in" </>
       prettySe 10 ((n, False):bnd) sc
-    prettySe p bnd (PPi (Exp l s _) n ty sc)
+
+    prettySe p bnd (PPi (Exp opts s _) n ty sc)
       | n `elem` allNamesIn sc || ppopt_impl ppo || n `elem` docArgs =
           bracket p 2 . group $
           enclose lparen rparen (group . align $ bindingOf n False <+> colon <+> prettySe 10 bnd ty) <+>
-          st <> text "->" <$> prettySe 10 ((n, False):bnd) sc
+          st <> text arrow <$> prettySe 10 ((n, False):bnd) sc
       | otherwise                      =
           bracket p 2 . group $
-          group (prettySe 1 bnd ty <+> st) <> text "->" <$> group (prettySe 10 ((n, False):bnd) sc)
+          group (prettySe 1 bnd ty <+> st) <> text arrow <$> group (prettySe 10 ((n, False):bnd) sc)
       where
+        arrow = if EraseArg `elem` opts then "~>" else "->"
         st =
           case s of
             Static -> text "[static]" <> space
             _      -> empty
-    prettySe p bnd (PPi (Imp l s _) n ty sc)
+
+    prettySe p bnd (PPi (Imp opts s _) n ty sc)
       | ppopt_impl ppo =
           bracket p 2 $
           lbrace <> bindingOf n True <+> colon <+> prettySe 10 bnd ty <> rbrace <+>
-          st <> text "->" </> prettySe 10 ((n, True):bnd) sc
+          st <> text arrow </> prettySe 10 ((n, True):bnd) sc
       | otherwise = prettySe 10 ((n, True):bnd) sc
       where
+        arrow = if EraseArg `elem` opts then "~>" else "->"
         st =
           case s of
             Static -> text "[static]" <> space

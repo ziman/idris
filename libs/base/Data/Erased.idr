@@ -9,13 +9,13 @@ module Data.Erased
 data Erased : Type -> Type where
 
     ||| Construct an erased value from any value.
-    Erase : .(x : a) -> Erased a
+    Erase : (x : a) ~> Erased a
 
 instance Functor Erased where
   map f (Erase x) = Erase (f x)
 
 instance Applicative Erased where
-  pure = Erase
+  pure x = Erase x
   (<$>) (Erase f) (Erase x) = Erase (f x)
 
 instance Monad Erased where

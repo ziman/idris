@@ -363,7 +363,7 @@ forall' :: Erase -> Name -> Raw -> Elab' aux ()
 forall' er n t = processTactic' (Forall er n t)
 
 forall :: Name -> Raw -> Elab' aux ()
-forall = forall' Keep
+forall = forall' Erase
 
 letbind :: Name -> Raw -> Raw -> Elab' aux ()
 letbind n t v = processTactic' (LetBind n t v)

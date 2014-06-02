@@ -845,7 +845,7 @@ pi syn =
 piArrow :: IdrisParser [ArgOpt]
 piArrow =
         symbol "->" *> pure []
-    <|> symbol "~>" *> pure [InaccessibleArg]
+    <|> symbol "~>" *> pure [EraseArg]
 
 {- | Parses a type constraint list
 

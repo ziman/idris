@@ -59,7 +59,7 @@ delabTy' ist imps tm fullname mvs = de [] imps tm
     de env ((PImp { argopts = opts }):is) (Bind n (Pi ty er) sc)
           = PPi (Imp (add er opts) Dynamic False) n (de env [] ty) (de ((n,n):env) is sc)
         where
-            add Erase = nub . (InaccessibleArg :)
+            add Erase = nub . (EraseArg :)
             add Keep  = id
 
     de env (PConstraint _ _ _ _:is) (Bind n (Pi ty _) sc)

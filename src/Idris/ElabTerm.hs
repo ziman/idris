@@ -347,7 +347,7 @@ elab ist info pattern opts fn tm
                solve
         where
             er :: Erase
-            er  | InaccessibleArg `elem` pargopts plicity = Erase
+            er  | EraseArg `elem` pargopts plicity = Erase
                 | otherwise = Keep
 
     elab' ina@(_, a, inty) (PLet n ty val sc)
