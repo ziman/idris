@@ -6,7 +6,7 @@
 
 module Idris.Core.ProofState(ProofState(..), newProof, envAtFocus, goalAtFocus,
                   Tactic(..), Goal(..), processTactic, nowElaboratingPS, doneElaboratingAppPS,
-                  doneElaboratingArgPS, dropGiven, keepGiven) where
+                  doneElaboratingArgPS, dropGiven, keepGiven, Erase(..)) where
 
 import Idris.Core.Typecheck
 import Idris.Core.Evaluate
@@ -47,6 +47,8 @@ data Goal = GD { premises :: Env,
                  goalType :: Binder Term
                }
 
+data Erase = Erase | Keep deriving (Show, Eq)
+
 data Tactic = Attack
             | Claim Name Raw
             | Reorder Name
@@ -68,7 +70,7 @@ data Tactic = Attack
             | CheckIn Raw
             | Intro (Maybe Name)
             | IntroTy Raw (Maybe Name)
-            | Forall Name Raw
+            | Forall Erase Name Raw
             | LetBind Name Raw Raw
             | ExpandLet Name Term
             | Rewrite Raw
@@ -594,13 +596,13 @@ intro mn ctxt env (Bind x (Hole t) (P _ x' _)) | x == x' =
            _ -> lift $ tfail $ CantIntroduce t'
 intro n ctxt env _ = fail "Can't introduce here."
 
-forall :: Name -> Raw -> RunTactic
-forall n ty ctxt env (Bind x (Hole t) (P _ x' _)) | x == x' =
+forall :: Erase -> Name -> Raw -> RunTactic
+forall er n ty ctxt env (Bind x (Hole t) (P _ x' _)) | x == x' =
     do (tyv, tyt) <- lift $ check ctxt env ty
        unify' ctxt env tyt (TType (UVar 0))
        unify' ctxt env t (TType (UVar 0))
-       return $ Bind n (Pi tyv False) (Bind x (Hole t) (P Bound x t)) -- we probably need an erased_forall
-forall n ty ctxt env _ = fail "Can't pi bind here"
+       return $ Bind n (Pi tyv (er == Erase)) (Bind x (Hole t) (P Bound x t)) -- we probably need an erased_forall
+forall er n ty ctxt env _ = fail "Can't pi bind here"
 
 patvar :: Name -> RunTactic
 patvar n ctxt env (Bind x (Hole t) sc) =
@@ -983,7 +985,7 @@ process t h = tactic (Just h) (mktac t)
          mktac HNF_Compute       = hnf_compute
          mktac (Intro n)         = intro n
          mktac (IntroTy ty n)    = introTy ty n
-         mktac (Forall n t)      = forall n t
+         mktac (Forall er n t)   = forall er n t
          mktac (LetBind n t v)   = letbind n t v
          mktac (ExpandLet n b)   = expandLet n b
          mktac (Rewrite t)       = rewrite t

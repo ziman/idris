@@ -359,8 +359,11 @@ intro n = processTactic' (Intro n)
 introTy :: Raw -> Maybe Name -> Elab' aux ()
 introTy ty n = processTactic' (IntroTy ty n)
 
+forall' :: Erase -> Name -> Raw -> Elab' aux ()
+forall' er n t = processTactic' (Forall er n t)
+
 forall :: Name -> Raw -> Elab' aux ()
-forall n t = processTactic' (Forall n t)
+forall = forall' Keep
 
 letbind :: Name -> Raw -> Raw -> Elab' aux ()
 letbind n t v = processTactic' (LetBind n t v)

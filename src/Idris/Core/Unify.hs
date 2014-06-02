@@ -387,7 +387,7 @@ unify ctxt env topx topy inj holes from =
                 h2 <- un' False (((x,y),binderTy bx):bnames) sx sy
                 combine bnames h1 h2
       where sameBinder (Lam _) (Lam _) = True
-            sameBinder (Pi _ _) (Pi _ _) = True
+            sameBinder (Pi _ e) (Pi _ e') = e == e'
             sameBinder _ _ = False
     un' fn bnames x y
         | OK True <- convEq' ctxt holes x y = do sc 1; return []
@@ -519,7 +519,7 @@ unify ctxt env topx topy inj holes from =
              sc 1
              combine bnames h1 h2
     uB bnames (Lam tx) (Lam ty) = do sc 1; un' False bnames tx ty
-    uB bnames (Pi tx _) (Pi ty _) = do sc 1; un' False bnames tx ty
+    uB bnames (Pi tx e) (Pi ty e') | e == e' = do sc 1; un' False bnames tx ty
     uB bnames (Hole tx) (Hole ty) = un' False bnames tx ty
     uB bnames (PVar tx) (PVar ty) = un' False bnames tx ty
     uB bnames x y = do UI s f <- get

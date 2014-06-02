@@ -803,36 +803,35 @@ Pi' ::=
 
 pi :: SyntaxInfo -> IdrisParser PTerm
 pi syn =
-     do opts <- piOpts syn
-        st   <- static
+     do st   <- static
         (do xt <- try (lchar '(' *> typeDeclList syn <* lchar ')')
-            symbol "->"
+            opts <- piArrow
             sc <- expr syn
             return (bindList (PPi (Exp opts st False)) xt sc)) <|> (do
                (do try (lchar '{' *> reserved "auto")
                    when (st == Static) $ fail "auto type constraints can not be lazy or static"
                    xt <- typeDeclList syn
                    lchar '}'
-                   symbol "->"
+                   opts <- piArrow
                    sc <- expr syn
                    return (bindList (PPi
-                     (TacImp [] Dynamic (PTactics [Trivial]))) xt sc)) <|> (do
+                     (TacImp opts Dynamic (PTactics [Trivial]))) xt sc)) <|> (do
                        try (lchar '{' *> reserved "default")
                        when (st == Static) $ fail "default tactic constraints can not be lazy or static"
                        script <- simpleExpr syn
                        xt <- typeDeclList syn
                        lchar '}'
-                       symbol "->"
+                       opts <- piArrow
                        sc <- expr syn
-                       return (bindList (PPi (TacImp [] Dynamic script)) xt sc))
+                       return (bindList (PPi (TacImp opts Dynamic script)) xt sc))
                  <|> (if implicitAllowed syn then do
                             xt <- try (lchar '{' *> typeDeclList syn <* lchar '}')
-                            symbol "->"
+                            opts <- piArrow
                             sc <- expr syn
                             return (bindList (PPi (Imp opts st False)) xt sc)
                        else do fail "no implicit arguments allowed here"))
                  <|> (do x <- opExpr syn
-                         (do symbol "->"
+                         (do opts <- piArrow
                              sc <- expr syn
                              return (PPi (Exp opts st False) (sUN "__pi_arg") x sc))
                           <|> return x)
@@ -840,14 +839,13 @@ pi syn =
 
 {- | Parses Possible Options for Pi Expressions
 @
-  PiOpts ::= '.'?
+  PiArrow ::= '->' | '~>'
 @
 -}
-piOpts :: SyntaxInfo -> IdrisParser [ArgOpt]
-piOpts syn | implicitAllowed syn =
-        lchar '.' *> return [InaccessibleArg]
-    <|> return []
-piOpts syn = return []
+piArrow :: IdrisParser [ArgOpt]
+piArrow =
+        symbol "->" *> pure []
+    <|> symbol "~>" *> pure [InaccessibleArg]
 
 {- | Parses a type constraint list
 

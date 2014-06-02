@@ -330,19 +330,26 @@ elab ist info pattern opts fn tm
                elabE (True, a, True) ty
                elabE (True, a, inty) sc
                solve
+
     elab' ina@(_, a, _) (PPi _ n Placeholder sc)
           = do attack; arg n (sMN 0 "ty"); elabE (True, a, True) sc; solve
-    elab' ina@(_, a, _) (PPi _ n ty sc)
+
+    elab' ina@(_, a, _) (PPi plicity n ty sc)
           = do attack; tyn <- getNameFrom (sMN 0 "ty")
                claim tyn RType
                n' <- case n of
                         MN _ _ -> unique_hole n
                         _ -> return n
-               forall n' (Var tyn)
+               forall' er n' (Var tyn)
                focus tyn
                elabE (True, a, True) ty
                elabE (True, a, True) sc
                solve
+        where
+            er :: Erase
+            er  | InaccessibleArg `elem` pargopts plicity = Erase
+                | otherwise = Keep
+
     elab' ina@(_, a, inty) (PLet n ty val sc)
           = do attack;
                tyn <- getNameFrom (sMN 0 "letty")
