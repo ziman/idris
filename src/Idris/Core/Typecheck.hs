@@ -202,7 +202,7 @@ check' holes ctxt env top = chk env top where
                  return (PVTy tv)
 
           discharge n (Lam t) scv sct
-            = return (Bind n (Lam t) scv, Bind n (Pi t False) sct) -- TODO
+            = return (Bind n (Lam t) scv, Bind n (Pi t Keep) sct) -- TODO
           discharge n (Pi t e) scv sct
             = return (Bind n (Pi t e) scv, sct)
           discharge n (Let t v) scv sct

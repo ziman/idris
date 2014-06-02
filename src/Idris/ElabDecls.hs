@@ -640,9 +640,9 @@ elabPrims = do mapM_ (elabDecl EAll toplevel)
 
           p_believeMe [_,_,x] = Just x
           p_believeMe _ = Nothing
-          believeTy = Bind (sUN "a") (Pi (TType (UVar (-2))) False)
-                       (Bind (sUN "b") (Pi (TType (UVar (-2))) False)
-                         (Bind (sUN "x") (Pi (V 1) False) (V 1)))
+          believeTy = Bind (sUN "a") (Pi (TType (UVar (-2))) Keep)
+                       (Bind (sUN "b") (Pi (TType (UVar (-2))) Keep)
+                         (Bind (sUN "x") (Pi (V 1) Keep) (V 1)))
           elabBelieveMe
              = do let prim__believe_me = sUN "prim__believe_me"
                   updateContext (addOperator prim__believe_me believeTy 3 p_believeMe)
@@ -663,10 +663,10 @@ elabPrims = do mapM_ (elabDecl EAll toplevel)
           vnNothing = VP (DCon 0 1) (sNS (sUN "Nothing") ["Maybe", "Prelude"]) VErased
           vnRefl = VP (DCon 0 2) eqCon VErased
 
-          synEqTy = Bind (sUN "a") (Pi (TType (UVar (-3))) False)
-                     (Bind (sUN "b") (Pi (TType (UVar (-3))) False)
-                      (Bind (sUN "x") (Pi (V 1) False)
-                       (Bind (sUN "y") (Pi (V 1) False)
+          synEqTy = Bind (sUN "a") (Pi (TType (UVar (-3))) Keep)
+                     (Bind (sUN "b") (Pi (TType (UVar (-3))) Keep)
+                      (Bind (sUN "x") (Pi (V 1) Keep)
+                       (Bind (sUN "y") (Pi (V 1) Keep)
                          (mkApp nMaybe [mkApp (P (TCon 0 4) eqTy Erased)
                                                [V 3, V 2, V 1, V 0]]))))
           elabSynEq
@@ -1750,7 +1750,7 @@ elabClause info opts (_, PWith fc fname lhs_in withs wval_in withblock)
         let wargval = getRetTy cwvalN
         let wargtype = getRetTy cwvaltyN
         logLvl 5 ("Abstract over " ++ show wargval)
-        let wtype = bindTyArgs (flip Pi False) (bargs_pre ++
+        let wtype = bindTyArgs (flip Pi Keep) (bargs_pre ++
                      (sMN 0 "warg", wargtype) :
                      map (abstract (sMN 0 "warg") wargval wargtype) bargs_post)
                      (substTerm wargval (P Bound (sMN 0 "warg") wargtype) ret_ty)

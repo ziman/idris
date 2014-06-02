@@ -56,11 +56,11 @@ delabTy' ist imps tm fullname mvs = de [] imps tm
                                   _ -> PRef un n
     de env _ (Bind n (Lam ty) sc)
           = PLam n (de env [] ty) (de ((n,n):env) [] sc)
-    de env ((PImp { argopts = opts }):is) (Bind n (Pi ty erased) sc)
-          = PPi (Imp (add erased opts) Dynamic False) n (de env [] ty) (de ((n,n):env) is sc)
+    de env ((PImp { argopts = opts }):is) (Bind n (Pi ty er) sc)
+          = PPi (Imp (add er opts) Dynamic False) n (de env [] ty) (de ((n,n):env) is sc)
         where
-            add True  = nub . (InaccessibleArg :)
-            add False = id
+            add Erase = nub . (InaccessibleArg :)
+            add Keep  = id
 
     de env (PConstraint _ _ _ _:is) (Bind n (Pi ty _) sc)
           = PPi constraint n (de env [] ty) (de ((n,n):env) is sc)

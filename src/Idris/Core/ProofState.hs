@@ -47,8 +47,6 @@ data Goal = GD { premises :: Env,
                  goalType :: Binder Term
                }
 
-data Erase = Erase | Keep deriving (Show, Eq)
-
 data Tactic = Attack
             | Claim Name Raw
             | Reorder Name
@@ -449,7 +447,7 @@ defer n ctxt env (Bind x (Hole t) (P nt x' ty)) | x == x' =
                       (mkApp (P Ref n ty) (map getP (reverse env))))
   where
     mkTy []           t = t
-    mkTy ((n,b) : bs) t = Bind n (Pi (binderTy b) False) (mkTy bs t)
+    mkTy ((n,b) : bs) t = Bind n (Pi (binderTy b) Keep) (mkTy bs t)
 
     getP (n, b) = P Bound n (binderTy b)
 
@@ -601,7 +599,7 @@ forall er n ty ctxt env (Bind x (Hole t) (P _ x' _)) | x == x' =
     do (tyv, tyt) <- lift $ check ctxt env ty
        unify' ctxt env tyt (TType (UVar 0))
        unify' ctxt env t (TType (UVar 0))
-       return $ Bind n (Pi tyv (er == Erase)) (Bind x (Hole t) (P Bound x t)) -- we probably need an erased_forall
+       return $ Bind n (Pi tyv er) (Bind x (Hole t) (P Bound x t)) -- we probably need an erased_forall
 forall er n ty ctxt env _ = fail "Can't pi bind here"
 
 patvar :: Name -> RunTactic

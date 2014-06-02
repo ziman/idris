@@ -67,6 +67,10 @@ instance NFData Err where
         rnf (ProviderError x1) = rnf x1 `seq` ()
         rnf (LoadingFailed x1 x2) = rnf x1 `seq` rnf x2 `seq` ()
 
+instance NFData Erase where
+        rnf Erase = ()
+        rnf Keep  = ()
+
 instance (NFData b) => NFData (Binder b) where
         rnf (Lam x1) = rnf x1 `seq` ()
         rnf (Pi x1 e) = rnf x1 `seq` rnf e `seq` ()

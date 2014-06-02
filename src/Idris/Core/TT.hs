@@ -608,6 +608,13 @@ deriving instance Binary Raw
 deriving instance NFData Raw
 !-}
 
+data Erase = Erase | Keep deriving (Show, Eq, Ord)
+
+{-!
+deriving instance Binary Erase
+deriving instance NFData Erase
+!-}
+
 -- The type parameter `b` will normally be something like `TT Name` or just
 -- `Raw`. We do not make a type-level distinction between TT terms that happen
 -- to be TT types and TT terms that are not TT types.
@@ -616,7 +623,7 @@ deriving instance NFData Raw
 -- of the 'Bind' constructor for the 'TT' type.
 data Binder b = Lam   { binderTy  :: !b {-^ type annotation for bound variable-}}
               | Pi    { binderTy  :: !b,
-                        binderErasable :: !Bool }
+                        binderErase :: !Erase }
                 {-^ A binding that occurs in a function type expression, e.g. @(x:Int) -> ...@ -}
               | Let   { binderTy  :: !b,
                         binderVal :: b {-^ value for bound variable-}}
@@ -1169,9 +1176,8 @@ prettyEnv env t = prettyEnv' env t False
     -- Render a `Binder` and its name
     prettySb env n (Lam t) = prettyB env "λ" "=>" n t
     prettySb env n (Hole t) = prettyB env "?defer" "." n t
-    prettySb env n (Pi t erased)
-        | erased    = prettyB env "(" ") ~>" n t
-        | otherwise = prettyB env "(" ") ->" n t
+    prettySb env n (Pi t Erase) = prettyB env "(" ") ~>" n t
+    prettySb env n (Pi t Keep)  = prettyB env "(" ") ->" n t
     prettySb env n (PVar t) = prettyB env "pat" "." n t
     prettySb env n (PVTy t) = prettyB env "pty" "." n t
     prettySb env n (Let t v) = prettyBv env "let" "in" n t v
@@ -1189,7 +1195,6 @@ prettyEnv env t = prettyEnv' env t False
       text op <> pretty n <+> colon <+> prettySe 10 env t debug <+> text "=" <+>
         prettySe 10 env v debug <> text sc
 
-
 showEnv' env t dbg = se 10 env t where
     se p env (P nt n t) = show n
                             ++ if dbg then "{" ++ show nt ++ " : " ++ se 10 env t ++ "}" else ""
@@ -1200,7 +1205,7 @@ showEnv' env t dbg = se 10 env t where
     se p env (Bind n b@(Pi t e) sc)
         | noOccurrence n sc && not dbg
         = bracket p 2 $ se 1 env t
-            ++ (if e then " ~> " else " -> ")
+            ++ (if e == Erase then " ~> " else " -> ")
             ++ se 10 ((n,b):env) sc
     se p env (Bind n b sc) = bracket p 2 $ sb env n b ++ se 10 ((n,b):env) sc
     se p env (App f a) = bracket p 1 $ se 1 env f ++ " " ++ se 0 env a
@@ -1213,9 +1218,8 @@ showEnv' env t dbg = se 10 env t where
     sb env n (Lam t)  = showb env "\\ " " => " n t
     sb env n (Hole t) = showb env "? " ". " n t
     sb env n (GHole i t) = showb env "?defer " ". " n t
-    sb env n (Pi t erased)
-        | erased    = showb env "(" ") ~> " n t
-        | otherwise = showb env "(" ") -> " n t
+    sb env n (Pi t Erase) = showb env "(" ") ~> " n t
+    sb env n (Pi t Keep)  = showb env "(" ") -> " n t
     sb env n (PVar t) = showb env "pat " ". " n t
     sb env n (PVTy t) = showb env "pty " ". " n t
     sb env n (Let t v)   = showbv env "let " " in " n t v

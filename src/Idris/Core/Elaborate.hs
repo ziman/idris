@@ -594,7 +594,7 @@ checkPiGoal n
                             f <- getNameFrom (sMN 0 "pf")
                             claim a RType
                             claim b RType
-                            claim f (RBind n (Pi (Var a) False) (Var b)) -- well, TODO
+                            claim f (RBind n (Pi (Var a) Keep) (Var b)) -- TODO erasure
                             movelast a
                             movelast b
                             fill (Var f)
@@ -609,7 +609,7 @@ simple_app fun arg appstr =
        s <- getNameFrom (sMN 0 "s")
        claim a RType
        claim b RType
-       claim f (RBind (sMN 0 "aX") (Pi (Var a) False) (Var b)) -- TODO
+       claim f (RBind (sMN 0 "aX") (Pi (Var a) Keep) (Var b)) -- TODO erasure
        tm <- get_term
        start_unify s
        claim s (Var a)

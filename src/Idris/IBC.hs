@@ -830,6 +830,14 @@ instance Binary Raw where
                            return (RForce x1)
                    _ -> error "Corrupted binary data for Raw"
 
+instance Binary Erase where
+    put Erase = putWord8 0
+    put Keep  = putWord8 1
+
+    get = getWord8 >>= \x -> case x of
+        0 -> return Erase
+        1 -> return Keep
+        _ -> error "Corrupted binary data for Erase"
 
 instance (Binary b) => Binary (Binder b) where
         put x

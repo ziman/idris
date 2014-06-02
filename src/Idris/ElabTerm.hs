@@ -417,7 +417,7 @@ elab ist info pattern opts fn tm
                                        ans <- claimArgTys env xs
                                        return ((aval, (True, (Var an))) : ans)
              fnTy [] ret  = forget ret
-             fnTy ((x, (_, xt)) : xs) ret = RBind x (Pi xt False) (fnTy xs ret) -- TODO
+             fnTy ((x, (_, xt)) : xs) ret = RBind x (Pi xt Keep) (fnTy xs ret) -- TODO
 
              localVar env (PRef _ x)
                            = case lookup x env of
@@ -1115,9 +1115,9 @@ runTac autoSolve ist fn tac
         where tacticTy = Var (reflm "Tactic")
               listTy = Var (sNS (sUN "List") ["List", "Prelude"])
               scriptTy = (RBind (sMN 0 "__pi_arg")
-                                (Pi (RApp listTy envTupleType) False) -- TODO
+                                (Pi (RApp listTy envTupleType) Keep) -- TODO
                                     (RBind (sMN 1 "__pi_arg")
-                                           (Pi (Var $ reflm "TT") False) tacticTy)) -- TODO
+                                           (Pi (Var $ reflm "TT") Keep) tacticTy)) -- TODO
     runT (ByReflection tm) -- run the reflection function 'tm' on the
                            -- goal, then apply the resulting reflected Tactic
         = do tgoal <- goal
@@ -1355,7 +1355,7 @@ reifyTTBinderApp :: (Term -> ElabD a) -> Name -> [Term] -> ElabD (Binder a)
 reifyTTBinderApp reif f [t]
                       | f == reflm "Lam" = liftM Lam (reif t)
 reifyTTBinderApp reif f [t]
-                      | f == reflm "Pi" = liftM (flip Pi False) (reif t) -- TODO
+                      | f == reflm "Pi" = liftM (flip Pi Keep) (reif t) -- TODO
 reifyTTBinderApp reif f [x, y]
                       | f == reflm "Let" = liftM2 Let (reif x) (reif y)
 reifyTTBinderApp reif f [x, y]
