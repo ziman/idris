@@ -1170,8 +1170,8 @@ prettyEnv env t = prettyEnv' env t False
     prettySb env n (Lam t) = prettyB env "λ" "=>" n t
     prettySb env n (Hole t) = prettyB env "?defer" "." n t
     prettySb env n (Pi t erased)
-        | erased    = prettyB env  "(" ") ->" n t
-        | otherwise = prettyB env ".(" ") ->" n t
+        | erased    = prettyB env "(" ") ~>" n t
+        | otherwise = prettyB env "(" ") ->" n t
     prettySb env n (PVar t) = prettyB env "pat" "." n t
     prettySb env n (PVTy t) = prettyB env "pty" "." n t
     prettySb env n (Let t v) = prettyBv env "let" "in" n t v
@@ -1197,8 +1197,11 @@ showEnv' env t dbg = se 10 env t where
                                     = (show $ fst $ env!!i) ++
                                       if dbg then "{" ++ show i ++ "}" else ""
                    | otherwise = "!!V " ++ show i ++ "!!"
-    se p env (Bind n b@(Pi t _) sc)
-        | noOccurrence n sc && not dbg = bracket p 2 $ se 1 env t ++ " -> " ++ se 10 ((n,b):env) sc
+    se p env (Bind n b@(Pi t e) sc)
+        | noOccurrence n sc && not dbg
+        = bracket p 2 $ se 1 env t
+            ++ (if e then " ~> " else " -> ")
+            ++ se 10 ((n,b):env) sc
     se p env (Bind n b sc) = bracket p 2 $ sb env n b ++ se 10 ((n,b):env) sc
     se p env (App f a) = bracket p 1 $ se 1 env f ++ " " ++ se 0 env a
     se p env (Proj x i) = se 1 env x ++ "!" ++ show i
@@ -1211,8 +1214,8 @@ showEnv' env t dbg = se 10 env t where
     sb env n (Hole t) = showb env "? " ". " n t
     sb env n (GHole i t) = showb env "?defer " ". " n t
     sb env n (Pi t erased)
-        | erased    = showb env ".(" ") -> " n t
-        | otherwise = showb env  "(" ") -> " n t
+        | erased    = showb env "(" ") ~> " n t
+        | otherwise = showb env "(" ") -> " n t
     sb env n (PVar t) = showb env "pat " ". " n t
     sb env n (PVTy t) = showb env "pty " ". " n t
     sb env n (Let t v)   = showbv env "let " " in " n t v
