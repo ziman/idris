@@ -110,6 +110,15 @@ match_unify ctxt env topx topy inj holes from =
                                            combine bnames h1 h2
     uB bnames (Lam tx) (Lam ty) = un bnames tx ty
     uB bnames (Pi tx e) (Pi ty e') | e == e' = un bnames tx ty
+    uB bnames x@(Pi tx e) y@(Pi ty e') | e /= e'
+                  = do UI s f <- get
+                       let r = recoverable (normalise ctxt env (binderTy x)) 
+                                           (normalise ctxt env (binderTy y))
+                       let err = cantUnify from r topx topy
+                                   (CantUnify r (binderTy x) (binderTy y) (Msg "") (errEnv env) s)
+                                   (errEnv env) s
+                       lift $ tfail err
+
     uB bnames x y = do UI s f <- get
                        let r = recoverable (normalise ctxt env (binderTy x)) 
                                            (normalise ctxt env (binderTy y))
@@ -520,6 +529,15 @@ unify ctxt env topx topy inj holes from =
              combine bnames h1 h2
     uB bnames (Lam tx) (Lam ty) = do sc 1; un' False bnames tx ty
     uB bnames (Pi tx e) (Pi ty e') | e == e' = do sc 1; un' False bnames tx ty
+    uB bnames x@(Pi tx e) y@(Pi ty e') | e /= e'
+                  = do UI s f <- get
+                       let r = recoverable (normalise ctxt env (binderTy x)) 
+                                           (normalise ctxt env (binderTy y))
+                       let err = cantUnify from r topx topy
+                                   (CantUnify r (binderTy x) (binderTy y) (Msg "") (errEnv env) s)
+                                   (errEnv env) s
+                       lift $ tfail err
+
     uB bnames (Hole tx) (Hole ty) = un' False bnames tx ty
     uB bnames (PVar tx) (PVar ty) = un' False bnames tx ty
     uB bnames x y = do UI s f <- get
