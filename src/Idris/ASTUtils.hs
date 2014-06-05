@@ -62,6 +62,9 @@ fputState field x = fmodifyState field (const x)
 fmodifyState :: MonadState s m => Field s a -> (a -> a) -> m ()
 fmodifyState field f = modify $ fmodify field f
 
+fmapField :: Applicative f => (rec -> fld) -> (fld -> rec -> rec) -> Field (f rec) (f fld)
+fmapField fget fset = Field (\r -> fget <$> r) (\f r -> fset <$> f <*> r)
+
 -- Exact-name context lookup; uses Nothing for deleted values (read+write!).
 -- 
 -- Reading a non-existing value yields Nothing,
@@ -137,30 +140,19 @@ opts_idrisCmdline =
 -- Context
 ----------
 
-instance InitialValue (Def, Accessibility, Totality, MetaInformation) where
-    initialValue = (err, err, err, err)
-      where
-        err = error "definition not found"
-
-ist_definition :: Name -> Field IState Def
+ist_definition :: Name -> Field IState (Maybe Def)
 ist_definition n = 
-      Field (\(def, acc, tot, meta) -> def) (\v (_, acc, tot, meta) -> (v, acc, tot, meta))
-    . ctxt_lookupExact n
+      fmapField (\(def, acc, tot, meta) -> def) (\v (_, acc, tot, meta) -> (v, acc, tot, meta))
+    . ctxt_lookup n
     . Field definitions (\v ctx -> ctx{ definitions = v })
     . Field tt_ctxt (\v ist -> ist{ tt_ctxt = v })
 
-instance InitialValue TypeInfo where
-    initialValue = error "type information not found"
-
-ist_datatype :: Name -> Field IState TypeInfo
+ist_datatype :: Name -> Field IState (Maybe TypeInfo)
 ist_datatype n =
-      ctxt_lookupExact n
+      ctxt_lookup n
     . Field idris_datatypes (\v ist -> ist{ idris_datatypes = v })
 
-instance InitialValue [PArg] where
-    initialValue = error "implicit info not found"
-
-ist_implicits :: Name -> Field IState [PArg]
+ist_implicits :: Name -> Field IState (Maybe [PArg])
 ist_implicits n =
-      ctxt_lookupExact n
+      ctxt_lookup n
     . Field idris_implicits (\v ist -> ist{ idris_implicits = v })

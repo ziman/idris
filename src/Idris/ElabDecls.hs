@@ -1658,15 +1658,15 @@ elabClause info opts (cnum, PClause fc fname lhs_in withs rhs_in whereblock')
 
         -- get the definition of the thing being opened
         tn <- targetName retTy
-        typeInfo <- fgetState $ ist_datatype tn
+        Just typeInfo <- fgetState $ ist_datatype tn
 
         when (length (con_names typeInfo) /= 1)
             . ifail $ show fc ++ ": can only open single-constructor datatypes: " ++ show tm
 
         -- get the type of its constructor
         let ctorName = head $ con_names typeInfo
-        TyDecl (DCon ctorTag ctorArity) ctorTy <- fgetState $ ist_definition ctorName
-        ctorImps <- fgetState $ ist_implicits ctorName
+        Just (TyDecl (DCon ctorTag ctorArity) ctorTy) <- fgetState $ ist_definition ctorName
+        Just ctorImps <- fgetState $ ist_implicits ctorName
 
         -- build field names with respect to renaming and interdeps
         let fields = getFields 0 sel ren ctorTy
