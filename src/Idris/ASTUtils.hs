@@ -114,7 +114,6 @@ opt_detaggable = Field detaggable (\v opt -> opt{ detaggable = v })
 -- callgraph record for the given (exact) name
 ist_callgraph :: Name -> Field IState CGInfo
 ist_callgraph n =
-<<<<<<< HEAD
       maybe_default CGInfo
         { argsdef = [], calls = [], scg = []
         , argsused = [], usedpos = []
