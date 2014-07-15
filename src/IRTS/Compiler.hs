@@ -190,8 +190,14 @@ declArgs args inl n x = LFun (if inl then [Inline] else []) n args x
 mkLDecl n (Function tm _)
     = declArgs [] True n <$> irTerm M.empty [] tm
 
-mkLDecl n (CaseOp ci _ _ _ pats cd)
-    = declArgs [] (case_inlinable ci || caseName n) n <$> irTree args sc
+mkLDecl n (CaseOp ci _ _ _ pats cd) = do
+    icg <- idris_callgraph <$> getIState
+    let args' = case lookupCtxtExact n icg of
+            Nothing -> error $ "trying to define a non-global name: " ++ show n
+            Just cg -> let used = map fst $ usedpos cg
+                        in [v | (i, v) <- zip [0..] args, i `elem` used]
+
+    declArgs [] (case_inlinable ci || caseName n) n <$> irTree args' sc
   where
     (args, sc) = cases_runtime cd
 
