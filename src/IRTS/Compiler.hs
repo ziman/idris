@@ -290,61 +290,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                              ])
 
     -- data constructor
-    (P (DCon t arity _) n _, args) -> do
-        detag <- fgetState (opt_detaggable . ist_optimisation n)
-        used  <- map fst <$> fgetState (cg_usedpos . ist_callgraph n)
-
-        let isNewtype = length used == 1 && detag
-        let argsPruned = [a | (i,a) <- zip [0..] args, i `elem` used]
-
-        -- The following code removes fields from data constructors
-        -- and performs the newtype optimisation.
-        --
-        -- The general rule here is:
-        -- Everything we get as input is not touched by erasure,
-        -- so it conforms to the official arities and types
-        -- and we can reason about it like it's plain TT.
-        --
-        -- It's only the data that leaves this point that's erased
-        -- and possibly no longer typed as the original TT version.
-        --
-        -- Especially, underapplied constructors must yield functions
-        -- even if all the remaining arguments are erased
-        -- (the resulting function *will* be applied, to NULLs).
-        --
-        -- This will probably need rethinking when we get erasure from functions.
-
-        -- "padLams" will wrap our term in LLam-bdas and give us
-        -- the "list of future unerased args" coming from these lambdas.
-        --
-        -- We can do whatever we like with the list of unerased args,
-        -- hence it takes a lambda: \unerased_argname_list -> resulting_LExp.
-        let padLams = padLambdas used (length args) arity
-
-        case compare (length args) arity of
-
-            -- overapplied
-            GT  -> ifail ("overapplied data constructor: " ++ show tm)
-
-            -- exactly saturated
-            EQ  | isNewtype
-                -> irTerm vs env (head argsPruned)
-
-                | otherwise  -- not newtype, plain data ctor
-                -> buildApp (LV $ Glob n) argsPruned
-
-            -- not saturated, underapplied
-            LT  | isNewtype               -- newtype
-                , length argsPruned == 1  -- and we already have the value
-                -> padLams . (\tm [] -> tm)  -- the [] asserts there are no unerased args
-                    <$> irTerm vs env (head argsPruned)
-
-                | isNewtype  -- newtype but the value is not among args yet
-                -> return . padLams $ \[vn] -> LApp False (LV $ Glob n) [LV $ Glob vn]
-
-                -- not a newtype, just apply to a constructor
-                | otherwise
-                -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
+    (P (DCon t arity) n _, args) -> appEraseName n args arity
 
     -- type constructor
     (P (TCon t a) n _, args) -> return LNothing
@@ -359,7 +305,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                 -> LOp op <$> mapM (irTerm vs env) args
 
             -- otherwise, just apply the name
-            _   -> applyName n ist args
+            _   -> appEraseName n args (nameArity n ist)
 
     -- turn de bruijn vars into regular named references and try again
     (V i, args) -> irTerm vs env $ mkApp (P Bound (env !! i) Erased) args
@@ -385,28 +331,74 @@ irTerm vs env tm@(App f a) = case unApply tm of
         allNames       = [sMN i "sat" | i <- [startIdx .. endSIdx-1]]
         nonerasedNames = [sMN i "sat" | i <- [startIdx .. endSIdx-1], i `elem` used]
 
-    applyName :: Name -> IState -> [Term] -> Idris LExp
-    applyName n ist args =
-        LApp False (LV $ Glob n) <$> mapM (irTerm vs env . erase) (zip [0..] args)
+    appEraseName :: Name -> [Term] -> Int -> Idris LExp
+    appEraseName n args arity = do
+        ist <- getIState
+        detaggable <- fgetState (opt_detaggable . ist_optimisation n)
+
+        case lookupCtxtExact n (idris_callgraph ist) of
+            Nothing -> irTerm vs env (head args) -- not a global name, simply apply it
+            Just cg -> do
+                let used       = map fst $ usedpos cg
+                let isNewtype  = detaggable && length used == 1
+                let argsPruned = [a | (i,a) <- zip [0..] args, i `elem` used]
+
+                -- The following code removes fields from names
+                -- and (possibly) performs the newtype optimisation.
+                --
+                -- The general rule here is:
+                -- Everything we get as input is not touched by erasure,
+                -- so it conforms to the official arities and types
+                -- and we can reason about it like it's plain TT.
+                --
+                -- It's only the data that leaves this point that's erased
+                -- and possibly no longer typed as the original TT version.
+                --
+                -- Especially, underapplied functions must still yield functions
+                -- even if all the remaining arguments are erased
+                -- (the resulting function *will* be applied, to NULLs).
+                --
+                -- "padLams" will wrap our term in LLam-bdas and give us
+                -- the "list of future unerased args" coming from these lambdas.
+                --
+                -- We can do whatever we like with the list of unerased args,
+                -- hence it takes a lambda: \unerased_argname_list -> resulting_LExp.
+                let padLams = padLambdas used (length args) arity
+
+                case compare (length args) arity of
+
+                    -- overapplied
+                    GT  -> ifail ("overapplied name: " ++ show tm)
+
+                    -- exactly saturated
+                    EQ  | isNewtype  -- newtyped data constructor
+                        -> irTerm vs env (head argsPruned)
+
+                        | otherwise  -- plain saturated application
+                        -> buildApp (LV $ Glob n) argsPruned
+
+                    -- not saturated, underapplied
+                    LT  | isNewtype               -- newtyped data constructor
+                        , length argsPruned == 1  -- and we already have the value
+                        -> padLams . (\tm [] -> tm)  -- the [] asserts there are no unerased args
+                            <$> irTerm vs env (head argsPruned)
+
+                        | isNewtype  -- newtype but the value is not among args yet
+                        -> return . padLams $ \[vn] -> (LV $ Glob vn)
+
+                        -- Not a newtype, just apply to the unerased arguments and wrap in lambdas.
+                        | otherwise
+                        -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
+
+    nameArity :: Name -> IState -> Int
+    nameArity n ist = case fst4 <$> lookupCtxtExact n (definitions . tt_ctxt $ ist) of
+        Just (CaseOp ci ty tys def tot cdefs) -> length tys
+        Just (TyDecl (DCon tag ar) _)         -> ar
+        Just (TyDecl Ref ty)                  -> length $ getArgTys ty
+        Just (Operator ty ar op)              -> ar
+        Just def -> error $ "unknown arity: " ++ show (n, def)
+        Nothing  -> 0  -- no definition, probably local name => can't erase anything
       where
-        erase (i, x)
-            | i >= arity || i `elem` used = x
-            | otherwise = Erased
-
-        arity = case fst4 <$> lookupCtxtExact n (definitions . tt_ctxt $ ist) of
-            Just (CaseOp ci ty tys def tot cdefs) -> length tys
-            Just (TyDecl (DCon tag ar _) _)       -> ar
-            Just (TyDecl Ref ty)                  -> length $ getArgTys ty
-            Just (Operator ty ar op)              -> ar
-            Just def -> error $ "unknown arity: " ++ show (n, def)
-            Nothing  -> 0  -- no definition, probably local name => can't erase anything
-
-        -- name for purposes of usage info lookup
-        uName
-            | Just n' <- viMethod =<< M.lookup n vs = n'
-            | otherwise = n
-
-        used = maybe [] (map fst . usedpos) $ lookupCtxtExact uName (idris_callgraph ist)
         fst4 (x,_,_,_) = x
 
 irTerm vs env (P _ n _) = return $ LV (Glob n)
