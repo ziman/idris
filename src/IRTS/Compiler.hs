@@ -575,13 +575,16 @@ irSC vs (Case up n [alt]) = do
             detag <- fgetState (opt_detaggable . ist_optimisation cn)
             used  <- map fst <$> fgetState (cg_usedpos . ist_callgraph cn)
             if detag && length used == 1
-                then return . Just $ substSC (ns !! head used) n sc
+                then return $ Just
+                        ( methodVars n cn (head used) `M.union` vs
+                        , substSC (ns !! head used) n sc
+                        )
                 else return Nothing
         _ -> return Nothing
 
     case replacement of
-        Just sc -> irSC vs sc
-        _ -> do
+        Just (vs', sc) -> irSC vs' sc
+        Nothing -> do
             alt' <- irAlt vs (LV (Glob n)) alt
             return $ case namesBoundIn alt' `usedIn` subexpr alt' of
                 [] -> subexpr alt'  -- strip the unused top-most case
@@ -596,6 +599,11 @@ irSC vs (Case up n [alt]) = do
     subexpr (LConCase _ _ _ e) = e
     subexpr (LConstCase _   e) = e
     subexpr (LDefaultCase   e) = e
+
+    methodVars :: Name -> Name -> Int -> Vars
+    methodVars v (SN (InstanceCtorN className)) fieldIdx
+        = M.singleton v VI{ viMethod = Just $ mkFieldName n fieldIdx }
+    methodVars _ _ _ = M.empty -- not an instance constructor
 
 -- FIXME: When we have a non-singleton case-tree of the form
 --
