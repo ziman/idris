@@ -379,8 +379,10 @@ irTerm vs env tm@(App f a) = case unApply tm of
 
                 case compare (length args) arity of
 
-                    -- overapplied
-                    GT  -> ifail ("overapplied name: " ++ show tm)
+                    -- overapplied; we apply to
+                    --   1. pruned regular args
+                    --   2. all (unpruned) extra args
+                    GT  -> buildApp (LV $ Glob n) (argsPruned ++ drop arity args)
 
                     -- exactly saturated
                     EQ  | isNewtype  -- newtyped data constructor
