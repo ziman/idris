@@ -342,12 +342,23 @@ irTerm vs env tm@(App f a) = case unApply tm of
         ist <- getIState
         detaggable <- fgetState (opt_detaggable . ist_optimisation n)
 
-        case lookupCtxtExact n (idris_callgraph ist) of
+        -- note that we look up "un", which refers to the suitable metamethod
+        case lookupCtxtExact un (idris_callgraph ist) of
+
             -- no usage info, we need more details
             Nothing ->
                 case lookupCtxtExact n (definitions $ tt_ctxt ist) of
-                    Just _  -> return (LV $ Glob n)        -- global name with no usage
-                    Nothing -> buildApp (LV $ Glob n) args -- not a global name, simply apply it
+                    -- no usage info, but it is a global name => nothing used
+                    Just _  -> return (LV $ Glob n)
+
+                    -- local name, we need to dig deeper
+                    Nothing ->
+                        case M.lookup n vs >>= viMethod of
+                            -- var projected from an instance ctor => method with no usage
+                            Just  _ -> return (LV $ Glob n)
+
+                            -- ordinary local var, we must assume full usage
+                            Nothing -> buildApp (LV $ Glob n) args
 
             -- we have usage info for this name
             Just cg -> do
@@ -403,6 +414,14 @@ irTerm vs env tm@(App f a) = case unApply tm of
                         -- Not a newtype, just apply to the unerased arguments and wrap in lambdas.
                         | otherwise
                         -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
+      where
+        -- Name for purposes of usage info lookup.
+        -- If "n" refers to a method, we must look up the method's usage pattern
+        -- instead of assuming that "n" uses all its arguments (what we would do
+        -- with an ordinary variable projected out of a constructor).
+        un :: Name
+        un | Just n' <- viMethod =<< M.lookup n vs = n'
+           | otherwise = n
 
     nameArity :: Name -> IState -> Int
     nameArity n ist = case fst4 <$> lookupCtxtExact n (definitions . tt_ctxt $ ist) of
