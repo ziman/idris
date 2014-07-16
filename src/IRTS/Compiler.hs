@@ -343,7 +343,13 @@ irTerm vs env tm@(App f a) = case unApply tm of
         detaggable <- fgetState (opt_detaggable . ist_optimisation n)
 
         case lookupCtxtExact n (idris_callgraph ist) of
-            Nothing -> irTerm vs env (head args) -- not a global name, simply apply it
+            -- no usage info, we need more details
+            Nothing ->
+                case lookupCtxtExact n (definitions $ tt_ctxt ist) of
+                    Just _  -> return (LV $ Glob n)        -- global name with no usage
+                    Nothing -> buildApp (LV $ Glob n) args -- not a global name, simply apply it
+
+            -- we have usage info for this name
             Just cg -> do
                 let used       = map fst $ usedpos cg
                 let isNewtype  = detaggable && length used == 1
