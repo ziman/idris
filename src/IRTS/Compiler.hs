@@ -174,7 +174,7 @@ isCon _ = False
 
 build :: (Name, Def) -> Idris (Name, LDecl)
 build (n, d)
-    = do i <- getIState
+    = do i <- ("DECL", n) `traceShow` getIState
          case lookup n (idris_scprims i) of
               Just (ar, op) ->
                   let args = map (\x -> sMN x "op") [0..] in
@@ -213,8 +213,17 @@ mkLDecl n (TyDecl (DCon tag arity _) _) =
 mkLDecl n (TyDecl (TCon t a) _) = return $ LConstructor n (-1) a
 mkLDecl n _ = return $ (declArgs [] True n LNothing) -- postulate, never run
 
+-- Note: this is currently rather "MetaMethodInfo".
+-- If you wish to store more information with variables,
+-- this metainfo should get extracted into a separate type
+-- and VarInfo will then contain "metainfo :: Maybe MetaInfo".
+--
+-- For the sake of simplicity however, we keep this as it is now.
 data VarInfo = VI
-    { viMethod :: Maybe Name
+    { viMetaMethod :: Name
+    , viClass      :: Name
+    , viCtor       :: Name
+    , viFieldNo    :: Int
     }
     deriving Show
 
@@ -296,7 +305,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                              ])
 
     -- data constructor
-    (P (DCon t arity) n _, args) -> appEraseName n args arity
+    (P (DCon t arity) n _, args) -> appEraseName n args (Just arity)
 
     -- type constructor
     (P (TCon t a) n _, args) -> return LNothing
@@ -311,7 +320,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                 -> LOp op <$> mapM (irTerm vs env) args
 
             -- otherwise, just apply the name
-            _   -> appEraseName n args (nameArity n ist)
+            _   -> appEraseName n args Nothing
 
     -- turn de bruijn vars into regular named references and try again
     (V i, args) -> irTerm vs env $ mkApp (P Bound (env !! i) Erased) args
@@ -337,9 +346,9 @@ irTerm vs env tm@(App f a) = case unApply tm of
         allNames       = [sMN i "sat" | i <- [startIdx .. endSIdx-1]]
         nonerasedNames = [sMN i "sat" | i <- [startIdx .. endSIdx-1], i `elem` used]
 
-    appEraseName :: Name -> [Term] -> Int -> Idris LExp
-    appEraseName n args arity = do
-        ist <- getIState
+    appEraseName :: Name -> [Term] -> Maybe Int -> Idris LExp
+    appEraseName n args ctorArity = do
+        ist <- ("APP", n, args) `traceShow` getIState
         detaggable <- fgetState (opt_detaggable . ist_optimisation n)
 
         -- note that we look up "un", which refers to the suitable metamethod
@@ -347,24 +356,25 @@ irTerm vs env tm@(App f a) = case unApply tm of
 
             -- no usage info, we need more details
             Nothing ->
-                case lookupCtxtExact n (definitions $ tt_ctxt ist) of
+                case ("NO USAGE", n) `traceShow` lookupCtxtExact n (definitions $ tt_ctxt ist) of
                     -- no usage info, but it is a global name => nothing used
                     Just _  -> return (LV $ Glob n)
 
                     -- local name, we need to dig deeper
                     Nothing ->
-                        case M.lookup n vs >>= viMethod of
+                        case M.lookup n vs of
                             -- var projected from an instance ctor => method with no usage
-                            Just  _ -> return (LV $ Glob n)
+                            Just vi -> ("METH", n, viMetaMethod vi) `traceShow` return (LV $ Glob n)
 
                             -- ordinary local var, we must assume full usage
-                            Nothing -> buildApp (LV $ Glob n) args
+                            Nothing -> ("LOCAL", n, args) `traceShow` buildApp (LV $ Glob n) args
 
             -- we have usage info for this name
-            Just cg -> do
+            Just cg -> ("RES", n, un) `traceShow` do
                 let used       = map fst $ usedpos cg
                 let isNewtype  = detaggable && length used == 1
                 let argsPruned = [a | (i,a) <- zip [0..] args, i `elem` used]
+                let arity      = fromMaybe (getArity ist) ctorArity
 
                 -- The following code removes fields from names
                 -- and (possibly) performs the newtype optimisation.
@@ -379,16 +389,17 @@ irTerm vs env tm@(App f a) = case unApply tm of
                 --
                 -- Especially, underapplied functions must still yield functions
                 -- even if all the remaining arguments are erased
-                -- (the resulting function *will* be applied, to NULLs).
+                -- (the resulting function *will* be applied to something).
                 --
                 -- "padLams" will wrap our term in LLam-bdas and give us
                 -- the "list of future unerased args" coming from these lambdas.
                 --
                 -- We can do whatever we like with the list of unerased args,
+                -- (for example ignore/discard them)
                 -- hence it takes a lambda: \unerased_argname_list -> resulting_LExp.
                 let padLams = padLambdas used (length args) arity
 
-                case compare (length args) arity of
+                case ("CG", n, arity, used, args, argsPruned) `traceShow` compare (length args) arity of
 
                     -- overapplied; we apply to
                     --   1. pruned regular args
@@ -420,19 +431,28 @@ irTerm vs env tm@(App f a) = case unApply tm of
         -- instead of assuming that "n" uses all its arguments (what we would do
         -- with an ordinary variable projected out of a constructor).
         un :: Name
-        un | Just n' <- viMethod =<< M.lookup n vs = n'
+        un | Just n' <- viMetaMethod <$> M.lookup n vs = n'
            | otherwise = n
 
-    nameArity :: Name -> IState -> Int
-    nameArity n ist = case fst4 <$> lookupCtxtExact n (definitions . tt_ctxt $ ist) of
-        Just (CaseOp ci ty tys def tot cdefs) -> length tys
-        Just (TyDecl (DCon tag ar) _)         -> ar
-        Just (TyDecl Ref ty)                  -> length $ getArgTys ty
-        Just (Operator ty ar op)              -> ar
-        Just def -> error $ "unknown arity: " ++ show (n, def)
-        Nothing  -> 0  -- no definition, probably local name => can't erase anything
-      where
-        fst4 (x,_,_,_) = x
+        getArity :: IState -> Int
+        getArity ist = case getDef n of
+            Just (CaseOp ci ty tys def tot cdefs) -> length tys
+            Just (TyDecl (DCon tag ar) _)         -> ar
+            Just (TyDecl Ref ty)                  -> length $ getArgTys ty
+            Just (Operator ty ar op)              -> ar
+            Just def -> error $ "unknown arity: " ++ show (n, def)
+            Nothing
+                -- method, get the arity from variable info
+                | Just vi <- M.lookup n vs
+                , Just (TyDecl (DCon tag ar) ty) <- getDef $ viCtor vi
+                    -> length . getArgTys . (!! viFieldNo vi) . map snd . getArgTys $ ty
+
+                -- no definition, not a method => local var, can't erase anything
+                | otherwise
+                    -> 0  
+          where
+            getDef n = fst4 <$> lookupCtxtExact n (definitions . tt_ctxt $ ist)
+            fst4 (x,_,_,_) = x
 
 irTerm vs env (P _ n _) = return $ LV (Glob n)
 irTerm vs env (V i)
@@ -601,8 +621,13 @@ irSC vs (Case up n [alt]) = do
     subexpr (LDefaultCase   e) = e
 
     methodVars :: Name -> Name -> Int -> Vars
-    methodVars v (SN (InstanceCtorN className)) fieldIdx
-        = M.singleton v VI{ viMethod = Just $ mkFieldName n fieldIdx }
+    methodVars v cn@(SN (InstanceCtorN className)) fieldIdx
+        = M.singleton v VI
+            { viMetaMethod = mkFieldName n fieldIdx
+            , viClass      = className
+            , viCtor       = cn
+            , viFieldNo    = fieldIdx
+            }
     methodVars _ _ _ = M.empty -- not an instance constructor
 
 -- FIXME: When we have a non-singleton case-tree of the form
@@ -653,7 +678,10 @@ irAlt vs _ (ConCase n t args sc) = do
     methodVars = case n of
         SN (InstanceCtorN className)
             -> M.fromList [(v, VI
-                { viMethod = Just $ mkFieldName n i
+                { viMetaMethod = mkFieldName n i
+                , viClass      = className
+                , viCtor       = n
+                , viFieldNo    = i
                 }) | (v,i) <- zip args [0..]]
         _
             -> M.empty -- not an instance constructor
