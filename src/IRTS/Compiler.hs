@@ -422,7 +422,13 @@ irTerm vs env tm@(App f a) = case unApply tm of
                         | isNewtype  -- newtype but the value is not among args yet
                         -> return . padLams $ \[vn] -> (LV $ Glob vn)
 
-                        -- Not a newtype, just apply to the unerased arguments and wrap in lambdas.
+                        -- not a newtype and there are no erased args remaining
+                        | length args > maximum [i | i <- [0..arity-1], i `notElem` used]
+                        -> buildApp (LV $ Glob n) argsPruned
+
+                        -- Some erased args will come later -> we need to
+                        -- apply to the unerased arguments first
+                        -- and then wrap in lambdas that will discard the unused args.
                         | otherwise
                         -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
       where
