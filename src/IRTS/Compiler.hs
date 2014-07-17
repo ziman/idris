@@ -375,6 +375,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                 let isNewtype  = detaggable && length used == 1
                 let argsPruned = [a | (i,a) <- zip [0..] args, i `elem` used]
                 let arity      = fromMaybe (getArity ist) ctorArity
+                let isConstructor = maybe False (const True) ctorArity
 
                 -- The following code removes fields from names
                 -- and (possibly) performs the newtype optimisation.
@@ -423,11 +424,14 @@ irTerm vs env tm@(App f a) = case unApply tm of
                         -> return . padLams $ \[vn] -> (LV $ Glob vn)
 
                         -- not a newtype and there are no erased args remaining
+                        -- hence we can leave the function underapplied
+                        -- (can't be done for constructors)
                         | length args > maximum [i | i <- [0..arity-1], i `notElem` used]
+                        , not isConstructor
                         -> buildApp (LV $ Glob n) argsPruned
 
-                        -- Some erased args will come later -> we need to
-                        -- apply to the unerased arguments first
+                        -- Some erased args will come later (or is a constructor) -> we need to
+                        -- fully expand the application -- apply to the unerased arguments,
                         -- and then wrap in lambdas that will discard the unused args.
                         | otherwise
                         -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
