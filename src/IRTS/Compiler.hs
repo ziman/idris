@@ -27,6 +27,7 @@ import Idris.Core.CaseTree
 import Control.Category
 import Prelude hiding (id, (.))
 
+import Control.Arrow
 import Control.Applicative
 import Control.Monad.State
 import Data.Maybe
@@ -174,7 +175,7 @@ isCon _ = False
 
 build :: (Name, Def) -> Idris (Name, LDecl)
 build (n, d)
-    = do i <- ("DECL", n) `traceShow` getIState
+    = do i <- getIState
          case lookup n (idris_scprims i) of
               Just (ar, op) ->
                   let args = map (\x -> sMN x "op") [0..] in
@@ -305,7 +306,20 @@ irTerm vs env tm@(App f a) = case unApply tm of
                              ])
 
     -- data constructor
-    (P (DCon t arity) n _, args) -> appEraseName n args (Just arity)
+    (P (DCon t arity) n _, args)
+        -> case n of
+            -- an application of an instance ctor -- we must erase from eta-expanded methods
+            SN (InstanceCtorN className)
+                -> do
+                    -- first prune the methods
+                    ist <- getIState
+                    let args' = map (pruneMeth ist n) args
+
+                    -- then apply normally
+                    appEraseName n args' (Just arity)
+            
+            -- just a regular name, erase normally
+            _   -> appEraseName n args (Just arity)
 
     -- type constructor
     (P (TCon t a) n _, args) -> return LNothing
@@ -343,12 +357,43 @@ irTerm vs env tm@(App f a) = case unApply tm of
     padLambdas used startIdx endSIdx mkTerm
         = LLam allNames $ mkTerm nonerasedNames
       where
-        allNames       = [sMN i "sat" | i <- [startIdx .. endSIdx-1]]
-        nonerasedNames = [sMN i "sat" | i <- [startIdx .. endSIdx-1], i `elem` used]
+        allNames       = [sMN i "csat" | i <- [startIdx .. endSIdx-1]]
+        nonerasedNames = [sMN i "dsat" | i <- [startIdx .. endSIdx-1], i `elem` used]
+
+    -- this is really a hack
+    pruneMeth :: IState -> Name -> Term -> Term
+    pruneMeth ist cn tm
+        | (vars, app) <- unLambda tm
+        , (fun@(P _ fn _), args) <- unApply app
+        = case lookupCtxtExact fn (idris_callgraph ist) of
+            Nothing -> tm
+            Just cg ->
+              -- TODO: add check that (vars ~ args)
+              let used = map fst $ usedpos cg
+                in reLambda [v | (i, v) <- zip [0..] vars, i `elem` used]
+                    $ reApply fun [
+                        -- the Erased placeholders will be removed in irTerm
+                        if i `elem` used then arg else Erased
+                        | (i, arg) <- zip [0..] args
+                      ]
+      where
+        unLambda :: Term -> ([Name], Term)
+        unLambda (Bind n (Lam ty) tm) = first (n :) (unLambda tm)
+        unLambda tm = ([], tm)
+
+        reLambda :: [Name] -> Term -> Term
+        reLambda [] tm = tm
+        reLambda (v : vs) tm = Bind v (Lam Erased) (reLambda vs tm)
+
+        reApply :: Term -> [Term] -> Term
+        reApply tm [] = tm
+        reApply tm (arg : args) = reApply (App tm arg) args
+
+    pruneMeth ist cn tm = error $ "cannot prune method of " ++ show cn ++ ": " ++ show tm
 
     appEraseName :: Name -> [Term] -> Maybe Int -> Idris LExp
     appEraseName n args ctorArity = do
-        ist <- ("APP", n, args) `traceShow` getIState
+        ist <- getIState
         detaggable <- fgetState (opt_detaggable . ist_optimisation n)
 
         -- note that we look up "un", which refers to the suitable metamethod
@@ -356,7 +401,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
 
             -- no usage info, we need more details
             Nothing ->
-                case ("NO USAGE", n) `traceShow` lookupCtxtExact n (definitions $ tt_ctxt ist) of
+                case lookupCtxtExact n (definitions $ tt_ctxt ist) of
                     -- no usage info, but it is a global name => nothing used
                     Just _  -> return (LV $ Glob n)
 
@@ -364,13 +409,13 @@ irTerm vs env tm@(App f a) = case unApply tm of
                     Nothing ->
                         case M.lookup n vs of
                             -- var projected from an instance ctor => method with no usage
-                            Just vi -> ("METH", n, viMetaMethod vi) `traceShow` return (LV $ Glob n)
+                            Just vi -> return (LV $ Glob n)
 
                             -- ordinary local var, we must assume full usage
-                            Nothing -> ("LOCAL", n, args) `traceShow` buildApp (LV $ Glob n) args
+                            Nothing -> buildApp (LV $ Glob n) args
 
             -- we have usage info for this name
-            Just cg -> ("RES", n, un) `traceShow` do
+            Just cg -> do
                 let used       = map fst $ usedpos cg
                 let isNewtype  = detaggable && length used == 1
                 let argsPruned = [a | (i,a) <- zip [0..] args, i `elem` used]
@@ -400,7 +445,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                 -- hence it takes a lambda: \unerased_argname_list -> resulting_LExp.
                 let padLams = padLambdas used (length args) arity
 
-                case ("CG", n, arity, used, args, argsPruned) `traceShow` compare (length args) arity of
+                case compare (length args) arity of
 
                     -- overapplied; we apply to
                     --   1. pruned regular args
@@ -423,15 +468,15 @@ irTerm vs env tm@(App f a) = case unApply tm of
                         | isNewtype  -- newtype but the value is not among args yet
                         -> return . padLams $ \[vn] -> (LV $ Glob vn)
 
-                        -- not a newtype and there are no erased args remaining
+                        -- Not a newtype and there are no erased args remaining,
                         -- hence we can leave the function underapplied
-                        -- (can't be done for constructors)
+                        -- (can't be done for constructors).
                         | length args > maximum [i | i <- [0..arity-1], i `notElem` used]
                         , not isConstructor
                         -> buildApp (LV $ Glob n) argsPruned
 
-                        -- Some erased args will come later (or is a constructor) -> we need to
-                        -- fully expand the application -- apply to the unerased arguments,
+                        -- Some erased args will come later (or we're applying a constructor).
+                        -- We need to fully expand the application, apply to the unerased arguments,
                         -- and then wrap in lambdas that will discard the unused args.
                         | otherwise
                         -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
