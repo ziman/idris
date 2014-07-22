@@ -365,10 +365,10 @@ irTerm vs env tm@(App f a) = case unApply tm of
     pruneMeth ist cn tm
         | (vars, app) <- unLambda tm
         , (fun@(P _ fn _), args) <- unApply app
+        , length args == length vars -- TODO: check more precisely that (vars ~ args)
         = case lookupCtxtExact fn (idris_callgraph ist) of
             Nothing -> tm
             Just cg ->
-              -- TODO: add check that (vars ~ args)
               let used = map fst $ usedpos cg
                 in reLambda [v | (i, v) <- zip [0..] vars, i `elem` used]
                     $ reApply fun [
@@ -389,7 +389,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
         reApply tm [] = tm
         reApply tm (arg : args) = reApply (App tm arg) args
 
-    pruneMeth ist cn tm = error $ "cannot prune method of " ++ show cn ++ ": " ++ show tm
+    pruneMeth ist cn tm = tm
 
     appEraseName :: Name -> [Term] -> Maybe Int -> Idris LExp
     appEraseName n args ctorArity = do
