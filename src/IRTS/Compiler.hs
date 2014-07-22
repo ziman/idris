@@ -471,7 +471,9 @@ irTerm vs env tm@(App f a) = case unApply tm of
                         -- Not a newtype and there are no erased args remaining,
                         -- hence we can leave the function underapplied
                         -- (can't be done for constructors).
-                        | length args > maximum [i | i <- [0..arity-1], i `notElem` used]
+                        --
+                        -- We add the (-1) here to cover the cases where all args are used.
+                        | length args > maximum ((-1) : [i | i <- [0..arity-1], i `notElem` used])
                         , not isConstructor
                         -> buildApp (LV $ Glob n) argsPruned
 
