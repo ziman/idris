@@ -313,7 +313,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                 -> do
                     -- first prune the methods
                     ist <- getIState
-                    let args' = map (pruneMeth ist n) args
+                    let args' = map (pruneMeth ist n) (zip [0..] args)
 
                     -- then apply normally
                     appEraseName n args' (Just arity)
@@ -361,12 +361,12 @@ irTerm vs env tm@(App f a) = case unApply tm of
         nonerasedNames = [sMN i "dsat" | i <- [startIdx .. endSIdx-1], i `elem` used]
 
     -- this is really a hack
-    pruneMeth :: IState -> Name -> Term -> Term
-    pruneMeth ist cn tm
+    pruneMeth :: IState -> Name -> (Int, Term) -> Term
+    pruneMeth ist ctorName (fieldNo, tm)
         | (vars, app) <- unLambda tm
         , (fun@(P _ fn _), args) <- unApply app
         , length args == length vars -- TODO: check more precisely that (vars ~ args)
-        = case lookupCtxtExact fn (idris_callgraph ist) of
+        = case lookupCtxtExact (mkFieldName ctorName fieldNo) (idris_callgraph ist) of
             Nothing -> tm
             Just cg ->
               let used = map fst $ usedpos cg
@@ -389,7 +389,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
         reApply tm [] = tm
         reApply tm (arg : args) = reApply (App tm arg) args
 
-    pruneMeth ist cn tm = tm
+    pruneMeth ist cn (fieldNo, tm) = tm
 
     appEraseName :: Name -> [Term] -> Maybe Int -> Idris LExp
     appEraseName n args ctorArity = do
