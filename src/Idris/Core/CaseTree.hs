@@ -471,6 +471,7 @@ match [] (([], ret) : xs) err
          case snd ret of
             Impossible -> return ImpossibleCase
             tm -> return $ STerm tm -- run out of arguments
+match vs cs err | ("MATCH", vs, cs, err) `traceShow` False = undefined
 match vs cs err = do let ps = partition cs
                      mixture vs ps err
 
