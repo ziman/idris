@@ -306,7 +306,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
                              ])
 
     -- data constructor
-    (P (DCon t arity) n _, args)
+    (P (DCon t arity _) n _, args)
         -> case n of
             -- an application of an instance ctor -- we must erase from eta-expanded methods
             SN (InstanceCtorN className)
@@ -494,14 +494,14 @@ irTerm vs env tm@(App f a) = case unApply tm of
         getArity :: IState -> Int
         getArity ist = case getDef n of
             Just (CaseOp ci ty tys def tot cdefs) -> length tys
-            Just (TyDecl (DCon tag ar) _)         -> ar
+            Just (TyDecl (DCon tag ar _) _)         -> ar
             Just (TyDecl Ref ty)                  -> length $ getArgTys ty
             Just (Operator ty ar op)              -> ar
             Just def -> error $ "unknown arity: " ++ show (n, def)
             Nothing
                 -- method, get the arity from variable info
                 | Just vi <- M.lookup n vs
-                , Just (TyDecl (DCon tag ar) ty) <- getDef $ viCtor vi
+                , Just (TyDecl (DCon tag ar _) ty) <- getDef $ viCtor vi
                     -> length . getArgTys . (!! viFieldNo vi) . map snd . getArgTys $ ty
 
                 -- no definition, not a method => local var, can't erase anything
