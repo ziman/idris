@@ -291,60 +291,64 @@ irTerm vs env tm@(App f a) = case unApply tm of
 
     -- data constructor
     (P (DCon t arity _) n _, args) -> do
-        detag <- fgetState (opt_detaggable . ist_optimisation n)
-        used  <- map fst <$> fgetState (cg_usedpos . ist_callgraph n)
+        noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState 
+        if noErasure
+          then buildApp (LV $ Glob n) args
+          else do
+            detag <- fgetState (opt_detaggable . ist_optimisation n)
+            used  <- map fst <$> fgetState (cg_usedpos . ist_callgraph n)
 
-        let isNewtype = length used == 1 && detag
-        let argsPruned = [a | (i,a) <- zip [0..] args, i `elem` used]
+            let isNewtype = length used == 1 && detag
+            let argsPruned = [a | (i,a) <- zip [0..] args, i `elem` used]
 
-        -- The following code removes fields from data constructors
-        -- and performs the newtype optimisation.
-        --
-        -- The general rule here is:
-        -- Everything we get as input is not touched by erasure,
-        -- so it conforms to the official arities and types
-        -- and we can reason about it like it's plain TT.
-        --
-        -- It's only the data that leaves this point that's erased
-        -- and possibly no longer typed as the original TT version.
-        --
-        -- Especially, underapplied constructors must yield functions
-        -- even if all the remaining arguments are erased
-        -- (the resulting function *will* be applied, to NULLs).
-        --
-        -- This will probably need rethinking when we get erasure from functions.
+            -- The following code removes fields from data constructors
+            -- and performs the newtype optimisation.
+            --
+            -- The general rule here is:
+            -- Everything we get as input is not touched by erasure,
+            -- so it conforms to the official arities and types
+            -- and we can reason about it like it's plain TT.
+            --
+            -- It's only the data that leaves this point that's erased
+            -- and possibly no longer typed as the original TT version.
+            --
+            -- Especially, underapplied constructors must yield functions
+            -- even if all the remaining arguments are erased
+            -- (the resulting function *will* be applied, to NULLs).
+            --
+            -- This will probably need rethinking when we get erasure from functions.
 
-        -- "padLams" will wrap our term in LLam-bdas and give us
-        -- the "list of future unerased args" coming from these lambdas.
-        --
-        -- We can do whatever we like with the list of unerased args,
-        -- hence it takes a lambda: \unerased_argname_list -> resulting_LExp.
-        let padLams = padLambdas used (length args) arity
+            -- "padLams" will wrap our term in LLam-bdas and give us
+            -- the "list of future unerased args" coming from these lambdas.
+            --
+            -- We can do whatever we like with the list of unerased args,
+            -- hence it takes a lambda: \unerased_argname_list -> resulting_LExp.
+            let padLams = padLambdas used (length args) arity
 
-        case compare (length args) arity of
+            case compare (length args) arity of
 
-            -- overapplied
-            GT  -> ifail ("overapplied data constructor: " ++ show tm)
+                -- overapplied
+                GT  -> ifail ("overapplied data constructor: " ++ show tm)
 
-            -- exactly saturated
-            EQ  | isNewtype
-                -> irTerm vs env (head argsPruned)
+                -- exactly saturated
+                EQ  | isNewtype
+                    -> irTerm vs env (head argsPruned)
 
-                | otherwise  -- not newtype, plain data ctor
-                -> buildApp (LV $ Glob n) argsPruned
+                    | otherwise  -- not newtype, plain data ctor
+                    -> buildApp (LV $ Glob n) argsPruned
 
-            -- not saturated, underapplied
-            LT  | isNewtype               -- newtype
-                , length argsPruned == 1  -- and we already have the value
-                -> padLams . (\tm [] -> tm)  -- the [] asserts there are no unerased args
-                    <$> irTerm vs env (head argsPruned)
+                -- not saturated, underapplied
+                LT  | isNewtype               -- newtype
+                    , length argsPruned == 1  -- and we already have the value
+                    -> padLams . (\tm [] -> tm)  -- the [] asserts there are no unerased args
+                        <$> irTerm vs env (head argsPruned)
 
-                | isNewtype  -- newtype but the value is not among args yet
-                -> return . padLams $ \[vn] -> LApp False (LV $ Glob n) [LV $ Glob vn]
+                    | isNewtype  -- newtype but the value is not among args yet
+                    -> return . padLams $ \[vn] -> LApp False (LV $ Glob n) [LV $ Glob vn]
 
-                -- not a newtype, just apply to a constructor
-                | otherwise
-                -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
+                    -- not a newtype, just apply to a constructor
+                    | otherwise
+                    -> padLams . applyToNames <$> buildApp (LV $ Glob n) argsPruned
 
     -- type constructor
     (P (TCon t a) n _, args) -> return LNothing
@@ -352,6 +356,7 @@ irTerm vs env tm@(App f a) = case unApply tm of
     -- a name applied to arguments
     (P _ n _, args) -> do
         ist <- getIState
+        noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState 
         case lookup n (idris_scprims ist) of
             -- if it's a primitive that is already saturated,
             -- compile to the corresponding op here already to save work
@@ -359,7 +364,8 @@ irTerm vs env tm@(App f a) = case unApply tm of
                 -> LOp op <$> mapM (irTerm vs env) args
 
             -- otherwise, just apply the name
-            _   -> applyName n ist args
+            _ | noErasure -> buildApp (LV $ Glob n) args
+            _ | otherwise -> applyName n ist args
 
     -- turn de bruijn vars into regular named references and try again
     (V i, args) -> irTerm vs env $ mkApp (P Bound (env !! i) Erased) args
@@ -545,11 +551,12 @@ irSC vs (Case up n [ConCase (UN delay) i [_, _, n'] sc])
 -- and erase the casesplit if they are not.
 --
 irSC vs (Case up n [alt]) = do
+    noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState
     replacement <- case alt of
         ConCase cn a ns sc -> do
             detag <- fgetState (opt_detaggable . ist_optimisation cn)
             used  <- map fst <$> fgetState (cg_usedpos . ist_callgraph cn)
-            if detag && length used == 1
+            if detag && length used == 1 && not noErasure
                 then return . Just $ substSC (ns !! head used) n sc
                 else return Nothing
         _ -> return Nothing
@@ -589,8 +596,9 @@ irSC vs (Case up n [alt]) = do
 -- to ensure that such case trees don't arise in the first place.
 --
 irSC vs (Case up n alts@[ConCase cn a ns sc, DefaultCase sc']) = do
+    noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState
     detag <- fgetState (opt_detaggable . ist_optimisation cn)
-    if detag
+    if detag && not noErasure
         then irSC vs (Case up n [ConCase cn a ns sc])
         else LCase up (LV (Glob n)) <$> mapM (irAlt vs (LV (Glob n))) alts
 
@@ -613,9 +621,13 @@ irAlt :: Vars -> LExp -> CaseAlt -> Idris LAlt
 
 -- this leaves out all unused arguments of the constructor
 irAlt vs _ (ConCase n t args sc) = do
-    used <- map fst <$> fgetState (cg_usedpos . ist_callgraph n)
-    let usedArgs = [a | (i,a) <- zip [0..] args, i `elem` used]
-    LConCase (-1) n usedArgs <$> irSC (methodVars `M.union` vs) sc
+    noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState
+    if noErasure
+        then LConCase (-1) n args <$> irSC (methodVars `M.union` vs) sc
+        else do
+            used <- map fst <$> fgetState (cg_usedpos . ist_callgraph n)
+            let usedArgs = [a | (i,a) <- zip [0..] args, i `elem` used]
+            LConCase (-1) n usedArgs <$> irSC (methodVars `M.union` vs) sc
   where
     methodVars = case n of
         SN (InstanceCtorN className)
