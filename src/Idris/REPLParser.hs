@@ -190,6 +190,7 @@ optArg name cmd = do
               <|> do discard (P.symbol "autosolve"); return AutoSolve
               <|> do discard (P.symbol "nobanner") ; return NoBanner
               <|> do discard (P.symbol "warnreach"); return WarnReach
+              <|> do discard (P.symbol "noerasure"); return NoErasure
 
 proofArg :: String -> (Bool -> Int -> Name -> Command) -> P.IdrisParser (Either String Command)
 proofArg name cmd = do

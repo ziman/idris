@@ -101,10 +101,16 @@ performUsageAnalysis = do
             $ ifail ("reachable postulates:\n" ++ intercalate "\n" ["  " ++ show n | n <- S.toList reachablePostulates])
 
         -- Store the usage info in the internal state.
-        mapM_ storeUsage usage
+        noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState
+        if noErasure
+            then mapM_ (storeUsage <=< fullUsage) (S.toList reachableNames)
+            else mapM_ storeUsage usage
 
         return $ S.toList reachableNames
   where
+    fullUsage :: Name -> Idris (Name, IntMap (Set Reason))
+    fullUsage n = return (n, IM.fromList [(i, S.empty) | i <- [0..127]])
+
     getMainName :: IState -> Either Err Name
     getMainName ist = case lookupCtxtName n (idris_implicits ist) of
         [(n', _)] -> Right n'

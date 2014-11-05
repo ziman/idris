@@ -86,6 +86,7 @@ parseFlags = many $
   <|> flag' DefaultPartial (long "partial")
   <|> flag' WarnPartial (long "warnpartial" <> help "Warn about undeclared partial functions")
   <|> flag' WarnReach (long "warnreach" <> help "Warn about reachable but inaccessible arguments")
+  <|> flag' NoErasure (long "noerasure" <> help "Do not perform erasure")
   <|> flag' NoCoverage (long "nocoverage")
   <|> flag' ErrContext (long "errorcontext")
   <|> flag' ShowLibs (long "link" <> help "Display link flags")
