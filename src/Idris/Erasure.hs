@@ -103,7 +103,11 @@ performUsageAnalysis = do
         -- Store the usage info in the internal state.
         mapM_ storeUsage usage
 
-        return $ S.toList reachableNames
+        -- Return the list of names reachable from main
+        noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState
+        if noErasure
+            then (sUN "run__IO" :) <$> getAllNames main
+            else return $ S.toList reachableNames
   where
     getMainName :: IState -> Either Err Name
     getMainName ist = case lookupCtxtName n (idris_implicits ist) of

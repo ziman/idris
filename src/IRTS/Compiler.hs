@@ -201,8 +201,11 @@ mkLDecl n (CaseOp ci _ _ _ pats cd)
     caseName (NS n _) = caseName n
     caseName _ = False
 
-mkLDecl n (TyDecl (DCon tag arity _) _) =
-    LConstructor n tag . length <$> fgetState (cg_usedpos . ist_callgraph n)
+mkLDecl n (TyDecl (DCon tag arity _) _) = do
+    noErasure <- (NoErasure `elem`) . opt_cmdline . idris_options <$> getIState
+    if noErasure
+        then return $ LConstructor n tag arity
+        else LConstructor n tag . length <$> fgetState (cg_usedpos . ist_callgraph n)
 
 mkLDecl n (TyDecl (TCon t a) _) = return $ LConstructor n (-1) a
 mkLDecl n _ = return $ (declArgs [] True n LNothing) -- postulate, never run
