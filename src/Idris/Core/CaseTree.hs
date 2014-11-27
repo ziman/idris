@@ -91,7 +91,7 @@ instance Show t => Show (SC' t) where
 
 type CaseTree = SC
 type Clause   = ([Pat], (Term, Term))
-type CS = ([Term], Int, [(Name, Type)])
+type CS = ([Term], Int)
 
 instance TermSize SC where
     termsize n (Case _ n' as) = termsize n as
@@ -259,21 +259,15 @@ simpleCase tc cover reflect phase fc inacc argtys cs erInfo
                         (ns', ps') = order [(n, i `elem` inacc) | (i,n) <- zip [0..] ns] pats
                         (tree, st) = runCaseBuilder erInfo
                                          (match ns' ps' (defaultCase cover)) 
-                                         ([], numargs, [])
-                        t          = CaseDef ns (prune proj (depatt ns' tree)) (fstT st) in
+                                         ([], numargs)
+                        t          = CaseDef ns (prune proj (depatt ns' tree)) (fst st) in
                         if proj then return (stripLambdas t) 
                                 else return t
--- FIXME: This check is not quite right in some cases, and is breaking
--- perfectly valid code!
---                                      if checkSameTypes (lstT st) tree
---                                         then return t
---                                         else Error (At fc (Msg "Typecase is not allowed"))
                 Error err -> Error (At fc err)
     where args = map (\i -> sMN i "e") [0..]
           defaultCase True = STerm Erased
           defaultCase False = UnmatchedCase "Error"
-          fstT (x, _, _) = x
-          lstT (_, _, x) = x
+          fstT (x,y,z) = x
 
           chkAccessible (avs, l, c)
                | phase == RunTime || reflect = return (l, c)
@@ -466,14 +460,12 @@ order ns' cs = let patnames = transpose (map (zip ns') (map fst cs))
 match :: [Name] -> [Clause] -> SC -- error case
                             -> CaseBuilder SC
 match [] (([], ret) : xs) err
-    = do (ts, v, ntys) <- get
-         put (ts ++ (map (fst.snd) xs), v, ntys)
+    = do (ts, v) <- get
+         put (ts ++ (map (fst.snd) xs), v)
          case snd ret of
             Impossible -> return ImpossibleCase
             tm -> return $ STerm tm -- run out of arguments
-match vs cs err | ("MATCH", vs, cs, err) `traceShow` False = undefined
-match vs cs err = do let ps = partition cs
-                     mixture vs ps err
+match vs cs err = ("MATCH", vs, cs) `traceShow` mixture vs (partition cs) err
 
 mixture :: [Name] -> [Partition] -> SC -> CaseBuilder SC
 mixture vs [] err = return err
@@ -542,6 +534,17 @@ caseGroups (v:vs) gs err = do g <- altGroups gs
                               matchCs <- match vs nextCs err
                               return $ ConstCase n matchCs
 
+-- This function is called for every constructor group because
+-- one constructor group gives rise to one CaseAlt.
+--
+-- In every constructor group, there may be various sub-cases
+-- (nested patterns), which is reflected by the fact that the argument
+-- "rs" is a list of the sub-cases.
+--
+-- It is sufficient to take "pats" from the first sub-case because "pats"
+-- are used only to asses whether a pattern is PAny, PTyPat or PV/PCon, which
+-- should be the same for every sub-case. (Is it?)
+-- 
 -- Returns:
 --   * names of all variables arising from match
 --   * names of accessible variables (subset of all variables)
@@ -549,33 +552,18 @@ caseGroups (v:vs) gs err = do g <- altGroups gs
 --   * clauses corresponding to (accVars ++ origVars ++ inaccVars)
 argsToAlt :: [Int] -> [([Pat], Clause)] -> CaseBuilder ([Name], [Name], [Name], [Clause])
 argsToAlt _ [] = return ([], [], [], [])
-argsToAlt inacc rs@((r, m) : rest) = do
-    newVars <- getNewVars r
+argsToAlt inacc rs@((pats, _clause) : _) = do
+    newVars <- getNewVars pats
     let (accVars, inaccVars) = partitionAcc newVars
-    return (newVars, accVars, inaccVars, addRs rs)
+    return (newVars, accVars, inaccVars, map addNewPats rs)
   where
     -- Create names for new variables arising from the given patterns.
     getNewVars :: [Pat] -> CaseBuilder [Name]
     getNewVars [] = return []
-    getNewVars ((PV n t) : ns) = do v <- getVar "e" 
-                                    nsv <- getNewVars ns
-
-                                    -- Record the type of the variable.
-                                    --
-                                    -- It seems that the ordering is not important
-                                    -- and we can put (v,t) always in front of "ntys"
-                                    -- (the varName-type pairs seem to represent a mapping).
-                                    --
-                                    -- The code that reads this is currently
-                                    -- commented out, anyway.
-                                    (cs, i, ntys) <- get
-                                    put (cs, i, (v, t) : ntys)
-
-                                    return (v : nsv)
-
-    getNewVars (PAny   : ns) = (:) <$> getVar "i" <*> getNewVars ns
-    getNewVars (PTyPat : ns) = (:) <$> getVar "t" <*> getNewVars ns
-    getNewVars (_      : ns) = (:) <$> getVar "e" <*> getNewVars ns
+    getNewVars ((PV n t) : ns) = (:) <$> getVar "e" <*> getNewVars ns
+    getNewVars (PAny   : ns)   = (:) <$> getVar "i" <*> getNewVars ns
+    getNewVars (PTyPat : ns)   = (:) <$> getVar "t" <*> getNewVars ns
+    getNewVars (_      : ns)   = (:) <$> getVar "e" <*> getNewVars ns
 
     -- Partition a list of things into (accessible, inaccessible) things,
     -- according to the list of inaccessible indices.
@@ -584,16 +572,18 @@ argsToAlt inacc rs@((r, m) : rest) = do
         , [x | (i,x) <- zip [0..] xs, i    `elem` inacc]
         )
 
-    addRs [] = []
-    addRs ((r, (ps, res)) : rs) = ((acc++ps++inacc, res) : addRs rs)
+    -- Add the patterns that arose from matching on a constructor
+    -- to the list of remaining patterns (those yet to be processed).
+    --
+    -- This will be mapped to modify every occurrence of that constructor in its group,
+    -- which means that in every sub-case, the "remaining work to do"
+    -- is extended appropriately.
+    addNewPats (ctorPats, (remainingPats, rhs)) = (acc++remainingPats++inacc, rhs)
       where
-        (acc, inacc) = partitionAcc r
-
-    uniq i (UN n) = MN i n
-    uniq i n = n
+        (acc, inacc) = partitionAcc ctorPats
 
 getVar :: String -> CaseBuilder Name
-getVar b = do (t, v, ntys) <- get; put (t, v+1, ntys); return (sMN v b)
+getVar b = do (t, v) <- get; put (t, v+1); return (sMN v b)
 
 groupCons :: [Clause] -> CaseBuilder [Group]
 groupCons cs = gc [] cs
@@ -627,8 +617,8 @@ varRule (v : vs) alts err =
        match vs alts' err
   where
     repVar v (PV p ty : ps , (lhs, res))
-           = do (cs, i, ntys) <- get
-                put (cs, i, (v, ty) : ntys)
+           = do (cs, i) <- get
+                put (cs, i)
                 return (ps, (lhs, subst p (P Bound v ty) res))
     repVar v (PAny : ps , res) = return (ps, res)
     repVar v (PTyPat : ps , res) = return (ps, res)
