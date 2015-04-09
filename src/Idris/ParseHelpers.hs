@@ -97,37 +97,84 @@ reportParserWarnings = do ist <- getIState
                                  parserWarnings ist)
                           clearParserWarnings
 
--- this will always fail to parse
--- for use in <|>-switched lists
-parserTrace' :: String -> IdrisParser b
-parserTrace' fn = parserTrace fn *> mzero
+wrapTrace :: IdrisParser a -> String -> IdrisParser a
+wrapTrace parser desc = do
+    iid <- freshItemId
+    addItem iid False  -- 1st occurrence of the iid marks attempt
+    result <- parser
+    addItem iid True   -- 2nd occurrence of the iid marks success
+    return result
+  where
+    freshItemId :: IdrisParser Int
+    freshItemId = do
+        iid <- fget ist_parserTraceCounter
+        ist_parserTraceCounter .= iid + 1
+        return iid
 
--- this will always succeed, returning ()
--- for use in do-blocks
-parserTrace :: String -> IdrisParser ()
-parserTrace fn = do
-    doTrace <- fget $ opts_parserTrace . ist_options
-    when doTrace $ do
+    addItem :: Int -> Bool -> IdrisParser ()
+    addItem iid flag = do
         fc <- getFC
-        fmodify ist_parserTrace ((fc, fn) :)
+        fmodify ist_parserTrace ((flag, iid, desc, fc) :)
 
 -- This is our override for <?> that can also save the parser trace.
 -- Please import Text.Trifecta hiding (<?>) and use this instead.
 (<?>) :: IdrisParser a -> String -> IdrisParser a
-p <?> desc = parserTrace desc *> (p Text.Trifecta.<?> desc)
+p <?> desc = do
+    doTrace <- fget $ opts_parserTrace . ist_options
+    if doTrace
+        then wrapTrace origParser desc
+        else origParser
+  where
+    origParser = p Text.Trifecta.<?> desc
+
+data NestedTraceItem =
+      Successful FC FC String [NestedTraceItem]
+    | Failed FC String
+    deriving Show
+
+splitId :: Int -> [ParserTraceItem] -> ([ParserTraceItem], FC, [ParserTraceItem])
+splitId iid [] = error $ show iid ++ " not found in splitId"
+splitId iid (it@(False, iid', n', fc') : its) | iid == iid' = ([], fc', its)
+splitId iid (it : its) = (it : xs, fc, ys)
+  where
+    (xs, fc, ys) = splitId iid its
+
+-- Takes reversed list of trace items.
+nest' :: [ParserTraceItem] -> [NestedTraceItem]
+nest' [] = []
+nest' (it@(False, iid, n, fc) : its) = Failed fc n : nest' its
+nest' (it@(True,  iid, n, fc) : its) = Successful fc' fc n (nest' xs) : nest' ys
+  where
+    (xs, fc', ys) = splitId iid its
+
+ffc :: FC
+ffc = FC "x.idr" (1,1) (1,1)
 
 printParserTrace :: Idris ()
 printParserTrace = do
     doTrace <- fget $ opts_parserTrace . ist_options
     when doTrace $ do
         prn "Parser trace:"
-        mapM_ (prn . fmtItem) . reverse . idris_parserTrace =<< getIState
+        mapM_ (prn . show) . reverse =<< fget ist_parserTrace
+        prn "Parser trace:"
+        nested <- nest' <$> fget ist_parserTrace
+        prn . show $ nested
+        mapM_ (prn . fmtItem 1) nested
   where
     prn :: String -> Idris ()
     prn = logLvl 0
 
-    fmtItem :: ParserTraceItem -> String
-    fmtItem (fc, desc) = "  " ++ show fc ++ ": " ++ desc
+    ind :: Int -> String
+    ind n = replicate n '.'
+
+    fmtItem :: Int -> NestedTraceItem -> String
+--    fmtItem indent (Failed fc desc)
+--        = ind indent ++ "FAIL " ++ show fc ++ ": " ++ desc
+    fmtItem indent (Successful begFC endFC desc items)
+        = ind indent ++ "SUCC "
+            ++ show begFC ++ " -- " ++ show endFC
+            ++ ": " ++ desc
+            ++ concatMap (("\n" ++) . fmtItem (indent+1)) items
 
 {- * Space, comments and literals (token/lexing like parsers) -}
 

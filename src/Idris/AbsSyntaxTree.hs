@@ -241,7 +241,8 @@ data IState = IState {
     elab_stack :: [Name], -- ^ Stack of names currently being elaborated
     idris_symbols :: M.Map Name Name, -- ^ Symbol table (preserves sharing of names)
     idris_exports :: [Name], -- ^ Functions with ExportList
-    idris_parserTrace :: [ParserTraceItem] -- ^ Parser trace sequence, stored reversed
+    idris_parserTrace :: [ParserTraceItem], -- ^ Parser trace sequence, stored reversed
+    idris_parserTraceCounter :: Int  -- ^ Used to generate unique item numbers
    }
 
 -- Required for parsers library, and therefore trifecta
@@ -249,7 +250,14 @@ instance Show IState where
   show = const "{internal state}"
 
 -- We define this as a tuple to sidestep the issues with Binary/NFData instances.
-type ParserTraceItem = (FC, String)
+-- First occurrence of an ID is an attempt to parse the item.
+-- Second occurrence of an ID means that item has successfully finished parsing.
+type ParserTraceItem =
+    ( Bool      -- false = before attempt, true = after success
+    , Int       -- item id
+    , String    -- name of the item
+    , FC        -- location
+    )
 
 data SizeChange = Smaller | Same | Bigger | Unknown
     deriving (Show, Eq)
@@ -332,7 +340,7 @@ idrisInit = IState initContext S.empty []
                    [] [] [] defaultOpts 6 [] [] [] [] emptySyntaxRules [] [] [] [] [] [] []
                    [] [] Nothing [] Nothing [] [] Nothing Nothing [] Hidden False [] Nothing [] []
                    (RawOutput stdout) True defaultTheme [] (0, emptyContext) emptyContext M.empty
-                   AutomaticWidth S.empty S.empty [] Nothing Nothing [] [] M.empty [] []
+                   AutomaticWidth S.empty S.empty [] Nothing Nothing [] [] M.empty [] [] 0
 
 -- | The monad for the main REPL - reading and processing files and updating
 -- global state (hence the IO inner monad).

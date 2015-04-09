@@ -154,6 +154,9 @@ ist_options = Field idris_options (\v ist -> ist{ idris_options = v })
 ist_parserTrace :: Field IState [ParserTraceItem]
 ist_parserTrace = Field idris_parserTrace (\v ist -> ist{ idris_parserTrace = v })
 
+ist_parserTraceCounter :: Field IState Int
+ist_parserTraceCounter = Field idris_parserTraceCounter (\v ist -> ist{ idris_parserTraceCounter = v })
+
 
 -- Commandline flags
 --------------------
