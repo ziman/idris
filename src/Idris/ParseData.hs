@@ -186,7 +186,7 @@ constructor syn
              argDocs' = [ (n, annotCode (tryFullExpr syn ist) d)
                         | (n, d) <- argDocs ]
          return (doc', argDocs', cn, ty, fc, fs)
-      <?> "constructor"
+      <?> "type constructor"
 
 {- | Parses a constructor for simple discriminated union data types
   SimpleConstructor ::= FnName SimpleExpr* DocComment?
@@ -202,7 +202,7 @@ simpleConstructor syn
           args <- many (do notEndApp
                            simpleExpr syn)
           return (doc', [], cn, args, fc, [])
-       <?> "constructor"
+       <?> "data constructor"
 
 {- | Parses a dsl block declaration
 DSL ::= 'dsl' FnName OpenBlock Overload'+ CloseBlock;

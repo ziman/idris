@@ -302,7 +302,7 @@ identifier = try (do i <- token $ Tok.ident idrisStyle
 
 -- | Parses an identifier with possible namespace as a name
 iName :: [String] -> IdrisParser Name
-iName bad = maybeWithNS identifier False bad <?> "name"
+iName bad = maybeWithNS identifier False bad <?> "simple name"
 
 -- | Parses an string possibly prefixed by a namespace
 maybeWithNS :: IdrisParser String -> Bool -> [String] -> IdrisParser Name

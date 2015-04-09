@@ -212,7 +212,7 @@ decl' syn =    fixity
            <|> fnDecl' syn
            <|> data_ syn
            <|> record syn
-           <?> "declaration"
+           <?> "extended declaration"
 
 {- | Parses a syntax extension declaration (and adds the rule to parser state)
 
@@ -414,7 +414,7 @@ fnDecl' syn = checkFixity $
             <|> postulate syn
             <|> caf syn
             <|> pattern syn
-            <?> "function declaration"
+            <?> "function declaration core"
     where checkFixity :: IdrisParser PDecl -> IdrisParser PDecl
           checkFixity p = do decl <- p
                              case getName decl of
@@ -542,7 +542,7 @@ using_ syn =
        ds <- many (decl (syn { using = uvars ++ ns }))
        closeBlock
        return (concat ds)
-    <?> "using declaration"
+    <?> "using block"
 
 {- | Parses a parameters declaration
 
@@ -561,7 +561,7 @@ params syn =
        closeBlock
        fc <- getFC
        return [PParams fc ns (concat ds)]
-    <?> "parameters declaration"
+    <?> "parameters block"
 
 {- | Parses a mutual declaration (for mutually recursive functions)
 
@@ -770,7 +770,7 @@ usingDecl syn = try (do x <- fnName
             <|> do c <- fnName
                    xs <- some fnName
                    return (UConstraint c xs)
-            <?> "using declaration"
+            <?> "using declaration head item"
 
 {- | Parse a clause with patterns
 
@@ -1177,14 +1177,14 @@ provider syn = do doc <- try (do (doc, _) <- docstring syn
           do lchar '('; n <- fnName; lchar ':'; t <- typeExpr syn; lchar ')'
              fc <- getFC
              reserved "with"
-             e <- expr syn <?> "provider expression"
+             e <- expr syn <?> "term provider expression"
              return  [PProvider doc syn fc (ProvTerm t e) n]
         providePostulate doc =
           do reserved "postulate"
              n <- fnName
              fc <- getFC
              reserved "with"
-             e <- expr syn <?> "provider expression"
+             e <- expr syn <?> "postulate provider expression"
              return [PProvider doc syn fc (ProvPostulate e) n]
 
 {- | Parses a transform

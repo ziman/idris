@@ -87,13 +87,13 @@ Expr' ::=  "External (User-defined) Syntax"
 expr' :: SyntaxInfo -> IdrisParser PTerm
 expr' syn = try (externalExpr syn)
             <|> internalExpr syn
-            <?> "expression"
+            <?> "external or internal expression"
 
 {- | Parses a user-defined expression -}
 externalExpr :: SyntaxInfo -> IdrisParser PTerm
 externalExpr syn = do i <- get
                       extensions syn (syntaxRulesList $ syntax_rules i)
-                   <?> "user-defined expression"
+                   <?> "external expression"
 
 {- | Parses a simple user-defined expression -}
 simpleExternalExpr :: SyntaxInfo -> IdrisParser PTerm
@@ -232,7 +232,7 @@ internalExpr syn =
      <|> doBlock syn
      <|> caseExpr syn
      <|> app syn
-     <?> "expression"
+     <?> "internal expression"
 
 {- | Parses the "impossible" keyword
 @
@@ -358,7 +358,7 @@ simpleExpr syn =
         <|> quasiquote syn
         <|> unquote syn
         <|> do lchar '_'; return Placeholder
-        <?> "expression"
+        <?> "simple expression"
 
 {- |Parses an expression in braces
 @
@@ -483,7 +483,7 @@ hsimpleExpr syn =
      e <- simpleExpr syn
      return $ PHidden e
   <|> simpleExpr syn
-  <?> "expression"
+  <?> "hidden or simple expression"
 
 {- | Parses a unification log expression
 UnifyLog ::=
@@ -519,7 +519,7 @@ disamb syn = do reserved "with";
                 ns <- sepBy1 name (lchar ',')
                 tm <- expr' syn
                 return (PDisamb (map tons ns) tm)
-               <?> "unification log expression"
+               <?> "disambiguation expression"
   where tons (NS n s) = txt (show n) : s
         tons n = [txt (show n)]
 {- | Parses a no implicits expression
@@ -757,7 +757,7 @@ LambdaTail ::=
 @
 -}
 lambda :: SyntaxInfo -> IdrisParser PTerm
-lambda syn = do lchar '\\' <?> "lambda expression"
+lambda syn = do lchar '\\' <?> "lambda"
                 ((do xt <- try $ tyOptDeclList syn
                      fc <- getFC
                      sc <- lambdaTail
@@ -1000,7 +1000,7 @@ tyOptDeclList syn = sepBy1 (do x <- nameOrPlaceholder
                                                            expr syn)
                                return (x,t))
                            (lchar ',')
-                    <?> "type declaration list"
+                    <?> "type declaration list (optional parameters)"
     where  nameOrPlaceholder :: IdrisParser Name
            nameOrPlaceholder = fnName
                            <|> do symbol "_"
@@ -1031,7 +1031,7 @@ ExprList ::=
 listExpr :: SyntaxInfo -> IdrisParser PTerm
 listExpr syn = do lchar '['; fc <- getFC;
                   try ((lchar ']' <?> "end of list expression") *> return (mkList fc [])) <|> (do
-                    x <- expr syn <?> "expression"
+                    x <- expr syn <?> "list comprehension expression"
                     (do try (lchar '|') <?> "list comprehension"
                         qs <- sepBy1 (do_ syn) (lchar ',')
                         lchar ']'
@@ -1039,7 +1039,7 @@ listExpr syn = do lchar '['; fc <- getFC;
                                    [DoExp fc (PApp fc (PRef fc (sUN "return"))
                                                 [pexp x])]))) <|> (do
                           xs <- many ((lchar ',' <?> "list element") *> expr syn)
-                          lchar ']' <?> "end of list expression"
+                          lchar ']' <?> "end of list comprehension"
                           return (mkList fc (x:xs))))
                 <?> "list expression"
   where
