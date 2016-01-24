@@ -17,7 +17,7 @@ import Data.Maybe
 import Debug.Trace
 
 -- | Data type representing binding-time annotations for partial evaluation of arguments
-data PEArgType = ImplicitS -- ^ Implicit static argument
+data PEArgType = ImplicitS Name -- ^ Implicit static argument
                | ImplicitD -- ^ Implicit dynamic argument
                | ExplicitS -- ^ Explicit static argument
                | ExplicitD -- ^ Explicit dynamic argument
@@ -88,7 +88,7 @@ specType args ty = let (t, args') = runState (unifyEq args ty) [] in
     -- of expecting it as a function argument
     st ((ExplicitS, v) : xs) (Bind n (Pi _ t _) sc)
          = Bind n (Let t v) (st xs sc)
-    st ((ImplicitS, v) : xs) (Bind n (Pi _ t _) sc)
+    st ((ImplicitS _, v) : xs) (Bind n (Pi _ t _) sc)
          = Bind n (Let t v) (st xs sc)
     -- Erase argument from function type
     st ((UnifiedD, _) : xs) (Bind n (Pi _ t _) sc)
@@ -191,7 +191,7 @@ mkNewPats ist d ns newname sname lhs rhs | all dynVar (map fst d)
                          (_, args) -> dynArgs ns args
         dynArgs _ [] = True -- can definitely reduce from here
         -- if Static, doesn't matter what the argument is
-        dynArgs ((ImplicitS, _) : ns) (a : as) = dynArgs ns as
+        dynArgs ((ImplicitS _, _) : ns) (a : as) = dynArgs ns as
         dynArgs ((ExplicitS, _) : ns) (a : as) = dynArgs ns as
         -- if Dynamic, it had better be a variable or we'll need to
         -- do some more work
@@ -220,9 +220,9 @@ mkNewPats ist d ns newname sname lhs rhs =
     mkLHSargs sub ((UnifiedD, _) : ns) (a : as) 
          = mkLHSargs sub ns as
     -- statics get dropped in any case
-    mkLHSargs sub ((ImplicitS, t) : ns) (a : as) 
+    mkLHSargs sub ((ImplicitS _, t) : ns) (a : as) 
          = mkLHSargs (extend a t sub) ns as
-    mkLHSargs sub ((ExplicitS, t) : ns) (a : as) 
+    mkLHSargs sub ((ExplicitS, t) : ns) (a : as)
          = mkLHSargs (extend a t sub) ns as
     mkLHSargs sub _ [] = [] -- no more LHS
 
@@ -230,6 +230,7 @@ mkNewPats ist d ns newname sname lhs rhs =
     extend _ _ sub = sub
 
     mkRHSargs ((ExplicitS, t) : ns) as = pexp (delab ist t) : mkRHSargs ns as
+    mkRHSargs ((ImplicitS n, t) : ns) as = pimp n (delab ist t) True : mkRHSargs ns as
     mkRHSargs ((ExplicitD, t) : ns) (a : as) = a : mkRHSargs ns as
     mkRHSargs (_ : ns) as = mkRHSargs ns as
     mkRHSargs _ _ = []
@@ -244,21 +245,21 @@ mkNewPats ist d ns newname sname lhs rhs =
 -- More complex version to do: specialise the definition clause by clause
 mkPE_TermDecl :: IState -> Name -> Name ->
                  [(PEArgType, Term)] -> PEDecl
-mkPE_TermDecl ist newname sname ns 
-    = let lhs = PApp emptyFC (PRef emptyFC [] newname) (map pexp (mkp ns)) 
-          rhs = eraseImps $ delab ist (mkApp (P Ref sname Erased) (map snd ns)) 
+mkPE_TermDecl ist newname sname args
+    = let lhs = PApp emptyFC (PRef emptyFC [] newname) (map pexp (mkPat args))
+          rhs = eraseImps $ delab ist (mkApp (P Ref sname Erased) (map snd args))
           patdef = lookupCtxtExact sname (idris_patdefs ist)
           newpats = case patdef of
                          Nothing -> PEDecl lhs rhs [(lhs, rhs)] True
-                         Just d -> mkNewPats ist (getPats d) ns 
+                         Just d -> mkNewPats ist (getPats d) args
                                              newname sname lhs rhs in
           newpats where
 
   getPats (ps, _) = map (\(_, lhs, rhs) -> (lhs, rhs)) ps
 
-  mkp [] = []
-  mkp ((ExplicitD, tm) : tms) = delab ist tm : mkp tms
-  mkp (_ : tms) = mkp tms
+  mkPat [] = []
+  mkPat ((ExplicitD, tm) : tms) = delab ist tm : mkPat tms
+  mkPat (_ : tms) = mkPat tms
 
   eraseImps tm = mapPT deImp tm
 
@@ -277,13 +278,10 @@ getSpecApps ist env tm = ga env (explicitNames tm) where
 --     staticArg env True _ tm@(App f a) _ | (P _ n _, args) <- unApply tm,
 --                                            n `elem` env = Just (True, tm)
     staticArg env x imp tm n
-         | x && imparg imp = (ImplicitS, tm)
+         | x, PImp _ _ _ pn _ <- imp = (ImplicitS pn, tm)
          | x = (ExplicitS, tm)
-         | imparg imp = (ImplicitD, tm)
+         | PImp _ _ _ _ _ <- imp = (ImplicitD, tm)
          | otherwise = (ExplicitD, (P Ref (sUN (show n ++ "arg")) Erased))
-
-    imparg (PExp _ _ _ _) = False
-    imparg _ = True
 
     buildApp env [] [] _ _ = []
     buildApp env (s:ss) (i:is) (a:as) (n:ns)

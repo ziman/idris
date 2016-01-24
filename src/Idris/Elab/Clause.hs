@@ -413,7 +413,7 @@ elabPE info fc caller r =
     hiddenToPH (PHidden _) = Placeholder
     hiddenToPH x = x
 
-    specName simpl (ImplicitS, tm)
+    specName simpl (ImplicitS _, tm)
         | (P Ref n _, _) <- unApply tm = Just (n, Just (if simpl then 1 else 0))
     specName simpl (ExplicitS, tm)
         | (P Ref n _, _) <- unApply tm = Just (n, Just (if simpl then 1 else 0))
@@ -423,7 +423,7 @@ elabPE info fc caller r =
                            Just s -> not (or s)
                            _ -> True
 
-    concreteArg ist (ImplicitS, tm) = concreteTm ist tm
+    concreteArg ist (ImplicitS _, tm) = concreteTm ist tm
     concreteArg ist (ExplicitS, tm) = concreteTm ist tm
     concreteArg ist _ = True
 
@@ -454,7 +454,7 @@ elabPE info fc caller r =
                                -- UN (show n ++ show (map snd args)) in
              (n, newnm, mkPE_TermDecl ist newnm n args)
       where showArg (ExplicitS, n) = qshow n
-            showArg (ImplicitS, n) = qshow n
+            showArg (ImplicitS _, n) = qshow n
             showArg _ = ""
 
             qshow (Bind _ _ _) = "fn"
