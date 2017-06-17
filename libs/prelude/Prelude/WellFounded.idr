@@ -12,6 +12,12 @@ import Prelude.Uninhabited
 %default total
 %access public export
 
+data Erased : Type -> Type where
+  Erase : .(x : a) -> Erased a
+
+unerase : Erased a -> a
+unerase (Erase x) = x
+
 ||| Accessibility: some element `x` is accessible if all `y` such that
 ||| `rel y x` are themselves accessible.
 |||
@@ -23,7 +29,7 @@ data Accessible : (rel : a -> a -> Type) -> (x : a) -> Type where
   |||
   ||| @ x the accessible element
   ||| @ rec a demonstration that all smaller elements are also accessible
-  Access : (rec : (y : a) -> rel y x -> Accessible rel y) ->
+  Access : (rec : (y : a) -> Erased (rel y x) -> Accessible rel y) ->
            Accessible rel x
 
 ||| A relation `rel` on `a` is well-founded if all elements of `a` are
@@ -43,7 +49,7 @@ interface WellFounded (rel : a -> a -> Type) where
 ||| @ step how to take steps on reducing arguments
 ||| @ z the starting point
 accRec : {rel : a -> a -> Type} ->
-         (step : (x : a) -> ((y : a) -> rel y x -> b) -> b) ->
+         (step : (x : a) -> ((y : a) -> Erased (rel y x) -> b) -> b) ->
          (z : a) -> Accessible rel z -> b
 accRec step z (Access f) =
   step z $ \y, lt => accRec step y (f y lt)
@@ -58,7 +64,7 @@ accRec step z (Access f) =
 ||| @ step how to take steps on reducing arguments
 ||| @ z the starting point
 accInd : {rel : a -> a -> Type} -> {P : a -> Type} ->
-         (step : (x : a) -> ((y : a) -> rel y x -> P y) -> P x) ->
+         (step : (x : a) -> ((y : a) -> Erased (rel y x) -> P y) -> P x) ->
          (z : a) -> Accessible rel z -> P z
 accInd {P} step z (Access f) =
   step z $ \y, lt => accInd {P} step y (f y lt)
@@ -68,7 +74,7 @@ accInd {P} step z (Access f) =
 |||
 ||| @ rel a well-founded relation
 wfRec : WellFounded rel =>
-        (step : (x : a) -> ((y : a) -> rel y x -> b) -> b) ->
+        (step : (x : a) -> ((y : a) -> Erased (rel y x) -> b) -> b) ->
         a -> b
 wfRec {rel} step x = accRec step x (wellFounded {rel} x)
 
@@ -81,7 +87,7 @@ wfRec {rel} step x = accRec step x (wellFounded {rel} x)
 |||        and give back a demonstration of P for that element,
 |||        potentially using accessibility
 wfInd : WellFounded rel => {P : a -> Type} ->
-        (step : (x : a) -> ((y : a) -> rel y x -> P y) -> P x) ->
+        (step : (x : a) -> ((y : a) -> Erased (rel y x) -> P y) -> P x) ->
         (x : a) -> P x
 wfInd {rel} step x = accInd step x (wellFounded {rel} x)
 
@@ -105,33 +111,33 @@ sizeAccessible x = Access $ f (size x) (ltAccessible $ size x)
   where
     -- prove well-foundedness of `Smaller` from well-foundedness of `LT`
     f : (sizeX : Nat) -> (acc : Accessible LT sizeX)
-      -> (y : a) -> (size y `LT` sizeX) -> SizeAccessible y
-    f Z acc y pf = absurd pf
-    f (S n) (Access acc) y (LTESucc yLEx)
-      = Access (\z, zLTy =>
-          f n (acc n $ LTESucc lteRefl) z (lteTransitive zLTy yLEx)
+      -> (y : a) -> Erased (size y `LT` sizeX) -> SizeAccessible y
+    f Z acc y (Erase pf) = absurd pf
+    f (S n) (Access acc) y (Erase (LTESucc yLEx))
+      = Access (\z, (Erase zLTy) =>
+          f n (acc n $ Erase (LTESucc lteRefl)) z (Erase $ lteTransitive zLTy yLEx)
         )
 
     ||| LT is a well-founded relation on numbers
     ltAccessible : (n : Nat) -> Accessible LT n
     ltAccessible n = Access (\v, prf => ltAccessible' {n'=v} n prf)
       where
-        ltAccessible' : (m : Nat) -> LT n' m -> Accessible LT n'
-        ltAccessible' Z x = absurd x
-        ltAccessible' (S k) (LTESucc x)
-            = Access (\val, p => ltAccessible' k (lteTransitive p x))
+        ltAccessible' : (m : Nat) -> Erased (LT n' m) -> Accessible LT n'
+        ltAccessible' Z (Erase x) = absurd x
+        ltAccessible' (S k) (Erase $ LTESucc x)
+            = Access (\val, (Erase p) => ltAccessible' k (Erase $ lteTransitive p x))
 
 ||| Strong induction principle for sized types.
 sizeInd : Sized a
   => {P : a -> Type}
-  -> (step : (x : a) -> ((y : a) -> Smaller y x -> P y) -> P x)
+  -> (step : (x : a) -> ((y : a) -> Erased (Smaller y x) -> P y) -> P x)
   -> (z : a)
   -> P z
 sizeInd step z = accInd step z (sizeAccessible z)
 
 ||| Strong recursion principle for sized types.
 sizeRec : Sized a
-  => (step : (x : a) -> ((y : a) -> Smaller y x -> b) -> b)
+  => (step : (x : a) -> ((y : a) -> Erased (Smaller y x) -> b) -> b)
   -> (z : a)
   -> b
 sizeRec step z = accRec step z (sizeAccessible z)
