@@ -52,6 +52,10 @@ instance Show Arg where
 type Node = (Name, Arg)
 type Deps = Map Cond DepSet
 type Reason = (Name, Int)  -- function name, argument index
+data NDeps = NDeps
+    { clauses :: IntMap (Cond, DepSet)
+    , index   :: Map Node IntSet
+    }
 
 -- | Nodes along with sets of reasons for every one.
 type DepSet = Map Node (Set Reason)
@@ -145,9 +149,31 @@ performUsageAnalysis startNames = do
         fmt n rs = show n ++ " from " ++ intercalate ", " [show rn ++ " arg# " ++ show ri | (rn,ri) <- rs]
         warn = logErasure 0
 
+toNDeps :: Deps -> NDeps
+toNDeps deps = NDeps (IM.fromList clauses) index
+  where
+    clauses :: [(Int, (Cond, DepSet))]
+    clauses = zip [0..] (M.toList deps)
+
+    index :: Map Node IntSet
+    index = foldr (
+            -- for each clause (i. ns --> _ds)
+            \(i, (ns, _ds)) ix -> foldr (
+                -- for each node `n` in `ns`
+                \n ix' -> M.insertWith IS.union n (IS.singleton i) ix'
+              ) ix (S.toList ns)
+        ) M.empty clauses
+
+fromNDeps :: NDeps -> Deps
+fromNDeps (NDeps clauses index) =
+    IM.foldr (
+        \(ns, vs) -> M.insertWith (M.unionWith S.union) ns vs
+    ) M.empty clauses
+
 -- | Find the minimal consistent usage by forward chaining.
 minimalUsage :: (Deps, DepSet) -> (Deps, (Set Name, UseMap))
-minimalUsage = second gather . forwardChain
+minimalUsage
+    = first fromNDeps . second gather . forwardChain S.empty . first toNDeps
   where
     gather :: DepSet -> (Set Name, UseMap)
     gather = foldr ins (S.empty, M.empty) . M.toList
@@ -156,30 +182,56 @@ minimalUsage = second gather . forwardChain
         ins ((n, Result), rs) (ns, umap) = (S.insert n ns, umap)
         ins ((n, Arg i ), rs) (ns, umap) = (ns, M.insertWith (IM.unionWith S.union) n (IM.singleton i rs) umap)
 
-forwardChain :: (Deps, DepSet) -> (Deps, DepSet)
-forwardChain (deps, solution)
-    | M.size solution' > M.size solution
-    = forwardChain (deps', solution')
+forwardChain :: S.Set Node -> (NDeps, DepSet) -> (NDeps, DepSet)
+forwardChain previouslyNew (NDeps clauses index, solution)
+    | M.null currentlyNew
+    = (NDeps clauses index, solution)
 
     | otherwise
-    = (deps', solution')
+    = forwardChain
+        (M.keysSet currentlyNew)
+        (NDeps clauses' index, M.unionWith S.union currentlyNew solution)
   where
-    (deps', solution') = simplifyOnce (deps, solution)
+    affectedIxs = IS.unions [index M.! n | n <- S.toList previouslyNew]
+    (currentlyNew, clauses') = IS.foldr adjustClause (M.empty, clauses) affectedIxs
+
+    adjustClause :: Int -> (DepSet, IntMap (Cond, DepSet)) -> (DepSet, IntMap (Cond, DepSet))
+    adjustClause i (news, clauses)
+        | Just (cond, deps) <- IM.lookup i clauses
+        = case cond S.\\ previouslyNew of
+            cond'
+                | S.null cond'
+                -> (M.unionWith S.union news deps, IM.delete i clauses)
+
+                | S.size cond' < S.size cond
+                -> (news, IM.insert i (cond', deps) clauses)
+
+                | otherwise
+                -> (news, clauses)
+
+        | otherwise = (news, clauses)
 
 -- Remove the given nodes from the Deps entirely,
 -- possibly creating new empty Conds.
-removeDeps :: DepSet -> Deps -> Deps
-removeDeps ds deps =
-    ("DEPS", M.size deps) `traceShow`
-        M.mapKeysWith (M.unionWith S.union) (S.\\ M.keysSet ds) deps
+removeDeps :: Set (Set Node) -> DepSet -> Deps -> Deps
+removeDeps affected ds deps =
+    let result = foldr redImpl deps (S.toList affected)
+      in
+        ( "DEPS:", M.size deps
+        , "hits:", length [k | k <- M.keys deps, not . S.null $ S.intersection k kds]
+        , "misses:", length [k | k <- M.keys deps, S.null $ S.intersection k kds]
+        , "news:", M.size (M.findWithDefault M.empty S.empty result)
+        ) `traceShow` result
+  where
+    kds = M.keysSet ds
 
-simplifyOnce :: (Deps, DepSet) -> (Deps, DepSet)
-simplifyOnce (deps, solution)
-    | Just trivials <- M.lookup S.empty deps
-    = ( removeDeps trivials $ M.delete S.empty deps
-      , M.unionWith S.union solution trivials
-      )
-    | otherwise = (deps, solution)
+    redImpl :: Set Node -> Deps -> Deps
+    redImpl ns ds
+        | Just vs <- M.lookup ns ds
+        = M.insertWith (M.unionWith S.union) (ns S.\\ kds) vs . M.delete ns $ ds
+
+        | otherwise
+        = ds
 
 -- | Build the dependency graph, starting the depth-first search from
 -- a list of Names.
@@ -248,7 +300,7 @@ buildDepMap ci used externs ctx startNames
     -- and call getDeps for every name
     dfs :: Set Name -> (Deps, DepSet) -> [Name] -> (Deps, DepSet)
     dfs visited (deps, solution) [] = (deps, solution)
-    dfs visited (simplifyOnce -> (deps, solution)) (n : ns)
+    dfs visited (deps, solution) (n : ns)
         | n `S.member` visited
         = dfs visited (deps, solution) ns
 
@@ -264,7 +316,7 @@ buildDepMap ci used externs ctx startNames
         next = [n | n <- S.toList depn, n `S.notMember` visited]
         depn = S.delete n $ allNames depsN
         depsN = getDeps n
-        (depsN', solN') = forwardChain (depsN, solution)
+        (depsN', solN') = (depsN, solution)
 
     -- extract all names that a function depends on
     -- from the Deps of the function
