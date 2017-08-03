@@ -51,6 +51,9 @@ import System.FilePath (addTrailingPathSeparator, (</>))
 import System.IO
 import System.Process
 
+import System.IO.Unsafe
+import Data.Time.Clock.POSIX
+
 -- |  Compile to simplified forms and return CodegenInfo
 compile :: Codegen -> FilePath -> Maybe Term -> Idris CodegenInfo
 compile codegen f mtm = do
@@ -63,8 +66,13 @@ compile codegen f mtm = do
                              Nothing -> []
                              Just t -> freeNames t
 
+        let ns = rootNames ++ getExpNames exports
+        () <- ns `traceShow` return ()
+        () <- return . unsafePerformIO $ (print =<< getPOSIXTime)
         reachableNames <- performUsageAnalysis
                               (rootNames ++ getExpNames exports)
+        () <- reachableNames `traceShow` return ()
+        () <- return . unsafePerformIO $ (print =<< getPOSIXTime)
         maindef <- case mtm of
                         Nothing -> return []
                         Just tm -> do md <- irMain tm

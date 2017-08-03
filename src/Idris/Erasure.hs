@@ -5,7 +5,7 @@ Copyright   :
 License     : BSD3
 Maintainer  : The Idris Community.
 -}
-{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternGuards, ViewPatterns #-}
 
 module Idris.Erasure (performUsageAnalysis, mkFieldName) where
 
@@ -86,10 +86,10 @@ performUsageAnalysis startNames = do
         externs <- idris_externs <$> getIState
 
         -- Build the dependency graph.
-        let depMap = buildDepMap ci used (S.toList externs) ctx main
+        let (depMap, solution) = buildDepMap ci used (S.toList externs) ctx main
 
         -- Search for reachable nodes in the graph.
-        let (residDeps, (reachableNames, minUse)) = minimalUsage depMap
+        let (residDeps, (reachableNames, minUse)) = minimalUsage (depMap, solution)
             usage = M.toList minUse
 
         -- Print some debug info.
@@ -146,7 +146,7 @@ performUsageAnalysis startNames = do
         warn = logErasure 0
 
 -- | Find the minimal consistent usage by forward chaining.
-minimalUsage :: Deps -> (Deps, (Set Name, UseMap))
+minimalUsage :: (Deps, DepSet) -> (Deps, (Set Name, UseMap))
 minimalUsage = second gather . forwardChain
   where
     gather :: DepSet -> (Set Name, UseMap)
@@ -156,24 +156,37 @@ minimalUsage = second gather . forwardChain
         ins ((n, Result), rs) (ns, umap) = (S.insert n ns, umap)
         ins ((n, Arg i ), rs) (ns, umap) = (ns, M.insertWith (IM.unionWith S.union) n (IM.singleton i rs) umap)
 
-forwardChain :: Deps -> (Deps, DepSet)
-forwardChain deps
-    | Just trivials <- M.lookup S.empty deps
-        = (M.unionWith S.union trivials)
-            `second` forwardChain (remove trivials . M.delete S.empty $ deps)
-    | otherwise = (deps, M.empty)
+forwardChain :: (Deps, DepSet) -> (Deps, DepSet)
+forwardChain (deps, solution)
+    | M.size solution' > M.size solution
+    = forwardChain (deps', solution')
+
+    | otherwise
+    = (deps', solution')
   where
-    -- Remove the given nodes from the Deps entirely,
-    -- possibly creating new empty Conds.
-    remove :: DepSet -> Deps -> Deps
-    remove ds = M.mapKeysWith (M.unionWith S.union) (S.\\ M.keysSet ds)
+    (deps', solution') = simplifyOnce (deps, solution)
+
+-- Remove the given nodes from the Deps entirely,
+-- possibly creating new empty Conds.
+removeDeps :: DepSet -> Deps -> Deps
+removeDeps ds deps =
+    ("DEPS", M.size deps) `traceShow`
+        M.mapKeysWith (M.unionWith S.union) (S.\\ M.keysSet ds) deps
+
+simplifyOnce :: (Deps, DepSet) -> (Deps, DepSet)
+simplifyOnce (deps, solution)
+    | Just trivials <- M.lookup S.empty deps
+    = ( removeDeps trivials $ M.delete S.empty deps
+      , M.unionWith S.union solution trivials
+      )
+    | otherwise = (deps, solution)
 
 -- | Build the dependency graph, starting the depth-first search from
 -- a list of Names.
 buildDepMap :: Ctxt InterfaceInfo -> [(Name, Int)] -> [(Name, Int)] ->
-               Context -> [Name] -> Deps
+               Context -> [Name] -> (Deps, DepSet)
 buildDepMap ci used externs ctx startNames
-    = addPostulates used $ dfs S.empty M.empty startNames
+    = first (addPostulates used) $ dfs S.empty (M.empty, M.empty) startNames
   where
     -- mark the result of Main.main as used with the empty assumption
     addPostulates :: [(Name, Int)] -> Deps -> Deps
@@ -233,15 +246,25 @@ buildDepMap ci used externs ctx startNames
     -- perform depth-first search
     -- to discover all the names used in the program
     -- and call getDeps for every name
-    dfs :: Set Name -> Deps -> [Name] -> Deps
-    dfs visited deps [] = deps
-    dfs visited deps (n : ns)
-        | n `S.member` visited = dfs visited deps ns
-        | otherwise = dfs (S.insert n visited) (M.unionWith (M.unionWith S.union) deps' deps) (next ++ ns)
+    dfs :: Set Name -> (Deps, DepSet) -> [Name] -> (Deps, DepSet)
+    dfs visited (deps, solution) [] = (deps, solution)
+    dfs visited (simplifyOnce -> (deps, solution)) (n : ns)
+        | n `S.member` visited
+        = dfs visited (deps, solution) ns
+
+        | otherwise
+        = dfs
+            (S.insert n visited)
+            (
+                M.unionWith (M.unionWith S.union) depsN' deps,
+                M.unionWith S.union solN' solution
+            )
+            (next ++ ns)
       where
         next = [n | n <- S.toList depn, n `S.notMember` visited]
-        depn = S.delete n $ allNames deps'
-        deps' = getDeps n
+        depn = S.delete n $ allNames depsN
+        depsN = getDeps n
+        (depsN', solN') = forwardChain (depsN, solution)
 
     -- extract all names that a function depends on
     -- from the Deps of the function
