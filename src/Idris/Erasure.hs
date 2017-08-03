@@ -172,9 +172,17 @@ fromNDeps (NDeps clauses index) =
 
 -- | Find the minimal consistent usage by forward chaining.
 minimalUsage :: (Deps, DepSet) -> (Deps, (Set Name, UseMap))
-minimalUsage
-    = first fromNDeps . second gather . forwardChain S.empty . first toNDeps
+minimalUsage (deps, solution)
+    = (fromNDeps *** gather)
+    . forwardChain (M.keysSet initialSolution)
+    $ (toNDeps deps, initialSolution)
   where
+    ndeps@(NDeps clauses index) = toNDeps deps
+
+    initialSolution :: DepSet
+    initialSolution =
+        M.unionsWith S.union (solution : [ds | (_,(cond, ds)) <- IM.toList clauses, S.null cond])
+
     gather :: DepSet -> (Set Name, UseMap)
     gather = foldr ins (S.empty, M.empty) . M.toList
        where
@@ -192,7 +200,12 @@ forwardChain previouslyNew (NDeps clauses index, solution)
         (M.keysSet currentlyNew)
         (NDeps clauses' index, M.unionWith S.union currentlyNew solution)
   where
-    affectedIxs = IM.keysSet clauses --IS.unions [index M.! n | n <- S.toList previouslyNew]
+    affectedIxs =
+        let estimate = IS.unions [index M.! n | n <- S.toList previouslyNew]
+            accurate = IS.filter (\i -> not . S.null $ S.intersection previouslyNew (fst (clauses IM.! i))) (IM.keysSet clauses)
+        in
+            ("ESTIMATE", IS.size estimate, "ACCURATE", IS.size accurate)
+                `traceShow` accurate
     (currentlyNew, clauses') = IS.foldr adjustClause (M.empty, clauses) affectedIxs
 
     adjustClause :: Int -> (DepSet, IntMap (Cond, DepSet)) -> (DepSet, IntMap (Cond, DepSet))
