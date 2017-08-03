@@ -200,12 +200,15 @@ forwardChain previouslyNew (NDeps clauses index, solution)
         (M.keysSet currentlyNew)
         (NDeps clauses' index, M.unionWith S.union currentlyNew solution)
   where
+    affectedIxs = ("ITER", 1) `traceShow` IS.unions [M.findWithDefault IS.empty n index | n <- S.toList previouslyNew]
+    {-
     affectedIxs =
-        let estimate = IS.unions [index M.! n | n <- S.toList previouslyNew]
+        let estimate = IS.unions [M.findWithDefault IS.empty n index | n <- S.toList previouslyNew]
             accurate = IS.filter (\i -> not . S.null $ S.intersection previouslyNew (fst (clauses IM.! i))) (IM.keysSet clauses)
         in
             ("ESTIMATE", IS.size estimate, "ACCURATE", IS.size accurate)
-                `traceShow` accurate
+                `traceShow` estimate
+    -}
     (currentlyNew, clauses') = IS.foldr adjustClause (M.empty, clauses) affectedIxs
 
     adjustClause :: Int -> (DepSet, IntMap (Cond, DepSet)) -> (DepSet, IntMap (Cond, DepSet))
