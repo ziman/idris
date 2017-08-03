@@ -192,7 +192,7 @@ forwardChain previouslyNew (NDeps clauses index, solution)
         (M.keysSet currentlyNew)
         (NDeps clauses' index, M.unionWith S.union currentlyNew solution)
   where
-    affectedIxs = IS.unions [index M.! n | n <- S.toList previouslyNew]
+    affectedIxs = IM.keysSet clauses --IS.unions [index M.! n | n <- S.toList previouslyNew]
     (currentlyNew, clauses') = IS.foldr adjustClause (M.empty, clauses) affectedIxs
 
     adjustClause :: Int -> (DepSet, IntMap (Cond, DepSet)) -> (DepSet, IntMap (Cond, DepSet))
@@ -210,28 +210,6 @@ forwardChain previouslyNew (NDeps clauses index, solution)
                 -> (news, clauses)
 
         | otherwise = (news, clauses)
-
--- Remove the given nodes from the Deps entirely,
--- possibly creating new empty Conds.
-removeDeps :: Set (Set Node) -> DepSet -> Deps -> Deps
-removeDeps affected ds deps =
-    let result = foldr redImpl deps (S.toList affected)
-      in
-        ( "DEPS:", M.size deps
-        , "hits:", length [k | k <- M.keys deps, not . S.null $ S.intersection k kds]
-        , "misses:", length [k | k <- M.keys deps, S.null $ S.intersection k kds]
-        , "news:", M.size (M.findWithDefault M.empty S.empty result)
-        ) `traceShow` result
-  where
-    kds = M.keysSet ds
-
-    redImpl :: Set Node -> Deps -> Deps
-    redImpl ns ds
-        | Just vs <- M.lookup ns ds
-        = M.insertWith (M.unionWith S.union) (ns S.\\ kds) vs . M.delete ns $ ds
-
-        | otherwise
-        = ds
 
 -- | Build the dependency graph, starting the depth-first search from
 -- a list of Names.
